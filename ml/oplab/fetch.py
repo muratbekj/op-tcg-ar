@@ -75,17 +75,23 @@ def main(argv: list[str] | None = None) -> None:
     roster_ids = {p["id"] for p in printings}
     if args.art != "none":
         wanted = rows if args.art == "all" else [r for r in rows if r["card_image_id"] in roster_ids]
-        downloaded, failed = optcg.download_art(wanted, paths.ART)
-        print(f"  art: {downloaded} downloaded, {len(failed)} failed {failed[:5] if failed else ''}")
+        downloaded, present, failed = optcg.download_art(wanted, paths.ART)
+        print(f"  art: {downloaded} downloaded, {present} already present, {len(failed)} failed"
+              f"{' ' + ', '.join(failed[:5]) if failed else ''} -> {paths.ART.relative_to(paths.REPO)}/")
 
+    installed = [p for p in sorted(roster_ids) if any(paths.APP_CARDS.glob(f"{p}.*"))]
     if args.install_art:
         paths.APP_CARDS.mkdir(parents=True, exist_ok=True)
         for printing_id in sorted(roster_ids):
             source = paths.ART / f"{printing_id}.jpg"
-            existing = list(paths.APP_CARDS.glob(f"{printing_id}.*"))
-            if source.exists() and not existing:
+            if source.exists() and printing_id not in installed:
                 shutil.copy(source, paths.APP_CARDS / source.name)
-                print(f"  installed {source.name}")
+                installed.append(printing_id)
+        print(f"  app art: {len(installed)}/{len(roster_ids)} roster printings in "
+              f"{paths.APP_CARDS.relative_to(paths.REPO)}/")
+    elif len(installed) < len(roster_ids):
+        print(f"  app art: {len(installed)}/{len(roster_ids)} roster printings bundled in the app; "
+              f"add --install-art to copy the rest (needed for card tracking in AR)")
 
 
 if __name__ == "__main__":

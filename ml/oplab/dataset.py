@@ -87,7 +87,9 @@ def generate_negatives(count: int, seed: int) -> int:
     rows = [r for r in optcg.fetch_rows(paths.API_CACHE) if r["card_set_id"] not in roster_cards]
     rng = np.random.default_rng(seed)
     chosen = [rows[i] for i in rng.choice(len(rows), size=min(count, len(rows)), replace=False)]
-    optcg.download_art(chosen, paths.ART)
+    downloaded, _, failed = optcg.download_art(chosen, paths.ART)
+    if failed:
+        print(f"  {len(failed)} art downloads failed")
     rendered = 0
     for index, row in enumerate(chosen):
         art = paths.ART / f"{row['card_image_id']}.jpg"
