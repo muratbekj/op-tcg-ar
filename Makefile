@@ -1,0 +1,23 @@
+# Uses the full Xcode toolchain even when xcode-select points at the Command Line Tools.
+export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+
+PROJECT := apps/ios/OnePieceAR.xcodeproj
+PACKAGE := apps/ios/Packages/OnePieceKit
+
+.PHONY: test build open ml-setup
+
+## Unit tests for models, catalog, recognition math, and battle rules (no device needed).
+test:
+	swift test --package-path $(PACKAGE)
+
+## Compile the app for a generic iPhone without signing (CI-style sanity check).
+build:
+	xcodebuild -project $(PROJECT) -scheme OnePieceAR -destination 'generic/platform=iOS' \
+		CODE_SIGNING_ALLOWED=NO -quiet build
+
+open:
+	open $(PROJECT)
+
+## Python lab environment (uv).
+ml-setup:
+	cd ml && uv sync

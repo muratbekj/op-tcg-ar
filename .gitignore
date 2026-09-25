@@ -1,0 +1,35 @@
+.DS_Store
+
+# Xcode / SwiftPM
+xcuserdata/
+DerivedData/
+*.xcuserstate
+.build/
+.swiftpm/
+build/
+
+# Character assets and card images are Bandai IP: never commit them.
+apps/ios/OnePieceAR/Resources/Characters/
+apps/ios/OnePieceAR/Resources/Animations/
+apps/ios/OnePieceAR/Resources/VFX/
+apps/ios/OnePieceAR/Resources/Cards/
+*.usdz
+*.reality
+*.fbx
+*.blend
+*.blend1
+*.glb
+*.gltf
+
+# Generated recognition index and fetched art
+data/cards/*.f32
+data/cards/art/
+
+# ML lab
+ml/datasets/*/
+ml/runs/
+ml/models/
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
