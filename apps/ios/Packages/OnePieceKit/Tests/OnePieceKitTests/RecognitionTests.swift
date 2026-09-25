@@ -36,6 +36,31 @@ import Testing
             printingIDs: [nil, "b", "c"])
         #expect(embeddings.matches(for: [1, 0], k: 2).map(\.printingID) == ["b", "c"])
     }
+
+    @Test func printingWithSeveralRowsIsReportedOnceAtBestRow() throws {
+        let embeddings = PrintingEmbeddings(
+            index: try EmbeddingIndex(rows: [[0.9, 0.1], [1, 0], [0.8, 0.2], [0, 1]]),
+            printingIDs: ["a", "b", "a", "c"])
+        let matches = embeddings.matches(for: [1, 0], k: 3)
+        #expect(matches.map(\.printingID) == ["b", "a", "c"])
+        #expect(embeddings.printingCount == 3)
+    }
+
+    @Test func loadsWithMetadataAndChecksDimension() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID()).f32")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let floats: [Float] = [1, 0, 0, 1, 1, 1]
+        try floats.withUnsafeBytes { Data($0) }.write(to: url)
+
+        let metadata = EmbeddingIndexMetadata(backend: "test", dimension: 2, rows: ["a", "b", "a"])
+        let embeddings = try PrintingEmbeddings.load(from: url, metadata: metadata)
+        #expect(embeddings.matches(for: [0, 1], k: 1).first?.printingID == "b")
+
+        let wrong = EmbeddingIndexMetadata(backend: "test", dimension: 4, rows: ["a", "b"])
+        #expect(throws: PrintingEmbeddingsError.dimensionMismatch(expected: 4, actual: 3)) {
+            try PrintingEmbeddings.load(from: url, metadata: wrong)
+        }
+    }
 }
 
 @Suite struct CardNumberParserTests {

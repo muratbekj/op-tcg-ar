@@ -23,6 +23,10 @@ public enum CandidateRanker {
     public static let ambiguityMargin: Float = 0.04
     /// A top match below this is too weak to trust without OCR.
     public static let confidentSimilarity: Float = 0.80
+    /// Reject a frame whose best match is below this (Vision feature print). From the 2026-09-25
+    /// eval: 2% of non-roster cards accepted, 62% of roster frames kept. A rejected frame just
+    /// means scanning continues; a false accept spawns the wrong character.
+    public static let defaultMinimumSimilarity: Float = 0.80
 
     public static func needsOCR(_ matches: [ArtMatch]) -> Bool {
         guard let top = matches.first else { return false }

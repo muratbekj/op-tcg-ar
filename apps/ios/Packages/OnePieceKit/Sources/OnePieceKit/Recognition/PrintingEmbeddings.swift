@@ -1,6 +1,7 @@
 import Foundation
 
-/// An embedding index whose rows are labeled with printing IDs.
+/// An embedding index whose rows are labeled with printing IDs. A printing may own several rows
+/// (reference art plus confirmed scans); matches are reported once per printing.
 public struct PrintingEmbeddings: Sendable {
     public static let fileName = "printings.f32"
 
@@ -14,7 +15,16 @@ public struct PrintingEmbeddings: Sendable {
         self.printingIDs = printingIDs
     }
 
-    /// Loads `printings.f32`, using each printing's `embeddingRow` as the row label.
+    /// Loads an index described by its sidecar metadata (`printings.meta.json`).
+    public static func load(from url: URL, metadata: EmbeddingIndexMetadata) throws -> PrintingEmbeddings {
+        let index = try EmbeddingIndex(contentsOf: url, rowCount: metadata.rows.count)
+        guard index.dimension == metadata.dimension else {
+            throw PrintingEmbeddingsError.dimensionMismatch(expected: metadata.dimension, actual: index.dimension)
+        }
+        return PrintingEmbeddings(index: index, printingIDs: metadata.rows)
+    }
+
+    /// Legacy layout without metadata: each printing's `embeddingRow` labels one row.
     /// Row count is `max(embeddingRow) + 1`; the dimension is inferred from the file size.
     public static func load(from url: URL, catalog: CardCatalog) throws -> PrintingEmbeddings {
         let rows = catalog.printings.compactMap { printing in printing.embeddingRow.map { ($0, printing.id) } }
@@ -31,12 +41,39 @@ public struct PrintingEmbeddings: Sendable {
         return PrintingEmbeddings(index: index, printingIDs: embeddings.map(\.printingID))
     }
 
+    public var printingCount: Int { Set(printingIDs.compactMap { $0 }).count }
+
+    /// Top-k printings, each at its best-matching row.
     public func matches(for query: [Float], k: Int) -> [ArtMatch] {
-        // Over-fetch so unlabeled rows don't eat into k.
-        index.nearest(to: query, k: k + 8)
-            .compactMap { hit in printingIDs[hit.row].map { ArtMatch(printingID: $0, similarity: hit.similarity) } }
-            .prefix(k)
-            .map { $0 }
+        var seen = Set<String>()
+        var result: [ArtMatch] = []
+        for hit in index.nearest(to: query, k: index.rowCount) {
+            guard let id = printingIDs[hit.row], seen.insert(id).inserted else { continue }
+            result.append(ArtMatch(printingID: id, similarity: hit.similarity))
+            if result.count == k { break }
+        }
+        return result
+    }
+}
+
+/// Sidecar for `printings.f32`, written by the ML lab. `backend` must equal the device's
+/// `EmbeddingEngine.backendID`, or the similarities are meaningless and the index is ignored.
+public struct EmbeddingIndexMetadata: Codable, Hashable, Sendable {
+    public static let fileName = "printings.meta.json"
+
+    public let backend: String
+    public let dimension: Int
+    /// Printing ID for each row, in file order. IDs may repeat.
+    public let rows: [String]
+    /// Top matches below this are rejected (likely a card outside the roster). Chosen per backend
+    /// from `evaluate.py`'s rejection curve; `nil` means use `CandidateRanker.defaultMinimumSimilarity`.
+    public let minimumSimilarity: Float?
+
+    public init(backend: String, dimension: Int, rows: [String], minimumSimilarity: Float? = nil) {
+        self.backend = backend
+        self.dimension = dimension
+        self.rows = rows
+        self.minimumSimilarity = minimumSimilarity
     }
 }
 
@@ -50,6 +87,7 @@ public struct ArtMatch: Hashable, Sendable {
     }
 }
 
-public enum PrintingEmbeddingsError: Error {
+public enum PrintingEmbeddingsError: Error, Equatable {
     case noEmbeddingRows
+    case dimensionMismatch(expected: Int, actual: Int)
 }
