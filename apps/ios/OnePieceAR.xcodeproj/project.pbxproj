@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0A0000000000000000000101 /* OnePieceKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0A0000000000000000000601 /* OnePieceKit */; };
 		0A0000000000000000000102 /* BattleKit in Frameworks */ = {isa = PBXBuildFile; productRef = 0A0000000000000000000602 /* BattleKit */; };
+		0A0000000000000000000103 /* CardVision in Frameworks */ = {isa = PBXBuildFile; productRef = 0A0000000000000000000603 /* CardVision */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,7 @@
 			files = (
 				0A0000000000000000000101 /* OnePieceKit in Frameworks */,
 				0A0000000000000000000102 /* BattleKit in Frameworks */,
+				0A0000000000000000000103 /* CardVision in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,6 +77,7 @@
 			packageProductDependencies = (
 				0A0000000000000000000601 /* OnePieceKit */,
 				0A0000000000000000000602 /* BattleKit */,
+				0A0000000000000000000603 /* CardVision */,
 			);
 			productName = OnePieceAR;
 			productReference = 0A0000000000000000000201 /* OnePieceAR.app */;
@@ -145,7 +148,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Copies data/cards (JSON + optional printings.f32) from the repo root into the app bundle.\nset -e\nDATA=\"${SRCROOT}/../../data/cards\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"$DEST\"\nfor f in cards.json printings.json variants.json; do\n  cp \"$DATA/$f\" \"$DEST/$f\"\ndone\nif [ -f \"$DATA/printings.f32\" ]; then\n  cp \"$DATA/printings.f32\" \"$DEST/printings.f32\"\nelse\n  rm -f \"$DEST/printings.f32\"\nfi\n";
+			shellScript = "# Copies data/cards (JSON + optional printings.f32) from the repo root into the app bundle.\nset -e\nDATA=\"${SRCROOT}/../../data/cards\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"$DEST\"\nfor f in cards.json printings.json variants.json; do\n  cp \"$DATA/$f\" \"$DEST/$f\"\ndone\nfor f in printings.f32 printings.meta.json; do\n  if [ -f \"$DATA/$f\" ]; then cp \"$DATA/$f\" \"$DEST/$f\"; else rm -f \"$DEST/$f\"; fi\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -215,12 +218,12 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "OP Card AR";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "The camera finds your One Piece card and anchors its character on top of it.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = arkit;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -251,12 +254,12 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "OP Card AR";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSCameraUsageDescription = "The camera finds your One Piece card and anchors its character on top of it.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = arkit;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -318,6 +321,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0A0000000000000000000801 /* XCLocalSwiftPackageReference "Packages/OnePieceKit" */;
 			productName = BattleKit;
+		};
+		0A0000000000000000000603 /* CardVision */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0A0000000000000000000801 /* XCLocalSwiftPackageReference "Packages/OnePieceKit" */;
+			productName = CardVision;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -1,4 +1,5 @@
 import ARKit
+import CardVision
 import OnePieceKit
 import RealityKit
 
@@ -108,8 +109,13 @@ final class AppModel {
         let art = catalog.printings.compactMap { printing in
             assets.cardArt(for: printing).map { (printingID: printing.id, image: $0) }
         }
-        let bundledIndex = Bundle.main.url(forResource: "printings", withExtension: "f32")
-        if await recognition.prepare(catalog: catalog, bundledIndex: bundledIndex, cardArt: art) {
+        let bundle = Bundle.main
+        if await recognition.prepare(
+            catalog: catalog,
+            bundledIndex: bundle.url(forResource: "printings", withExtension: "f32"),
+            bundledMetadata: bundle.url(forResource: "printings.meta", withExtension: "json"),
+            bundledModel: bundle.url(forResource: RecognitionService.modelName, withExtension: "mlmodelc"),
+            cardArt: art) {
             recognitionSummary = await recognition.referenceSummary
         }
     }
