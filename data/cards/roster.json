@@ -1,0 +1,16 @@
+{
+  "cards": [
+    {
+      "id": "OP05-119",
+      "characterId": "luffy",
+      "defaultVariantId": "luffy_gear5",
+      "printingVariants": {}
+    },
+    {
+      "id": "OP06-118",
+      "characterId": "zoro",
+      "defaultVariantId": "zoro_classic",
+      "printingVariants": {}
+    }
+  ]
+}

@@ -12,7 +12,14 @@
       "ko": "ko_fall",
       "victory": "victory_pose",
       "attacks": [
-        { "id": "kong_gun", "clip": "attack_heavy", "vfx": ["haki", "impact"] }
+        {
+          "id": "kong_gun",
+          "clip": "attack_heavy",
+          "vfx": [
+            "haki",
+            "impact"
+          ]
+        }
       ]
     }
   },
@@ -29,15 +36,22 @@
       "ko": "ko_fall",
       "victory": "victory_pose",
       "attacks": [
-        { "id": "bajrang_gun", "clip": "attack_heavy", "vfx": ["lightning", "impact"] }
+        {
+          "id": "bajrang_gun",
+          "clip": "attack_heavy",
+          "vfx": [
+            "lightning",
+            "impact"
+          ]
+        }
       ]
     }
   },
   {
-    "id": "zoro_egghead",
+    "id": "zoro_classic",
     "characterId": "zoro",
-    "name": "Egghead",
-    "modelAsset": "zoro_egghead.usdz",
+    "name": "Classic",
+    "modelAsset": "zoro_classic.usdz",
     "heightMeters": 0.115,
     "animations": {
       "idle": "idle_fighter",
@@ -46,7 +60,14 @@
       "ko": "ko_fall",
       "victory": "victory_pose",
       "attacks": [
-        { "id": "three_sword_style", "clip": "attack_light", "vfx": ["slash", "impact"] }
+        {
+          "id": "three_sword_style",
+          "clip": "attack_light",
+          "vfx": [
+            "slash",
+            "impact"
+          ]
+        }
       ]
     }
   }
