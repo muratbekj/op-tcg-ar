@@ -4,7 +4,7 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 PROJECT := apps/ios/OnePieceAR.xcodeproj
 PACKAGE := apps/ios/Packages/OnePieceKit
 
-.PHONY: test build open ml-setup
+.PHONY: test build open ml-setup ml-test eval
 
 ## Unit tests for models, catalog, recognition math, and battle rules (no device needed).
 test:
@@ -21,3 +21,10 @@ open:
 ## Python lab environment (uv).
 ml-setup:
 	cd ml && uv sync
+
+ml-test:
+	cd ml && uv run pytest -q
+
+## Recognition eval through the device pipeline; report in ml/runs/, history in ml/results/results.csv.
+eval:
+	cd ml && uv run scripts/evaluate.py --name $(or $(NAME),manual)

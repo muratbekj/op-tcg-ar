@@ -25,6 +25,8 @@ but the card browser and settings still run there.
 make test     # OnePieceKit + BattleKit unit tests, no device needed
 make build    # compile the app for a generic iPhone, unsigned
 make open     # open in Xcode
+make ml-test  # ML lab unit tests
+make eval     # evaluate recognition on the current test set (see ml/README.md)
 ```
 
 To run on your phone: open the project, go to Signing & Capabilities for the OnePieceAR target,
@@ -44,6 +46,6 @@ pipeline exists.
 
 ## Status
 
-M0–M4 and M6 are implemented. The device half of M5 (scan logging) is done, and the Python side
-is stubbed. The seed card data comes from the spec's example values and still needs to be
-checked. See `docs/architecture.md` for details, and `data/cards/README.md`.
+M0–M6 are implemented. Card data comes from the OPTCG API. The roster has two cards so far, and a
+Gear 4 Luffy card is still to pick. The ML lab (`ml/README.md`) evaluates recognition through the
+same Swift pipeline the phone runs. See `docs/architecture.md` and `data/cards/README.md`.

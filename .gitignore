@@ -23,6 +23,7 @@ apps/ios/OnePieceAR/Resources/Cards/
 
 # Generated recognition index and fetched art
 data/cards/*.f32
+data/cards/printings.meta.json
 data/cards/art/
 
 # ML lab
@@ -33,3 +34,8 @@ ml/models/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# Core ML embedders (trained on card art)
+apps/ios/OnePieceAR/Resources/Models/
+*.mlpackage
+*.mlmodelc
