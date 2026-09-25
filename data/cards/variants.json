@@ -1,0 +1,53 @@
+[
+  {
+    "id": "luffy_gear4",
+    "characterId": "luffy",
+    "name": "Gear 4",
+    "modelAsset": "luffy_gear4.usdz",
+    "heightMeters": 0.12,
+    "animations": {
+      "idle": "idle_fighter",
+      "walk": "walk",
+      "hit": "hit_light",
+      "ko": "ko_fall",
+      "victory": "victory_pose",
+      "attacks": [
+        { "id": "kong_gun", "clip": "attack_heavy", "vfx": ["haki", "impact"] }
+      ]
+    }
+  },
+  {
+    "id": "luffy_gear5",
+    "characterId": "luffy",
+    "name": "Gear 5",
+    "modelAsset": "luffy_gear5.usdz",
+    "heightMeters": 0.12,
+    "animations": {
+      "idle": "idle_fighter",
+      "walk": "walk",
+      "hit": "hit_light",
+      "ko": "ko_fall",
+      "victory": "victory_pose",
+      "attacks": [
+        { "id": "bajrang_gun", "clip": "attack_heavy", "vfx": ["lightning", "impact"] }
+      ]
+    }
+  },
+  {
+    "id": "zoro_egghead",
+    "characterId": "zoro",
+    "name": "Egghead",
+    "modelAsset": "zoro_egghead.usdz",
+    "heightMeters": 0.115,
+    "animations": {
+      "idle": "idle_fighter",
+      "walk": "walk",
+      "hit": "hit_light",
+      "ko": "ko_fall",
+      "victory": "victory_pose",
+      "attacks": [
+        { "id": "three_sword_style", "clip": "attack_light", "vfx": ["slash", "impact"] }
+      ]
+    }
+  }
+]

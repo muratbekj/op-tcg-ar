@@ -1,0 +1,30 @@
+[
+  {
+    "id": "OP05-119",
+    "set": "OP05",
+    "number": "119",
+    "name": "Monkey D. Luffy",
+    "kind": "character",
+    "colors": ["red"],
+    "cost": 4,
+    "power": 6000,
+    "counter": 1000,
+    "life": null,
+    "characterId": "luffy",
+    "defaultVariantId": "luffy_gear4"
+  },
+  {
+    "id": "OP06-118",
+    "set": "OP06",
+    "number": "118",
+    "name": "Roronoa Zoro",
+    "kind": "character",
+    "colors": ["green"],
+    "cost": 5,
+    "power": 6000,
+    "counter": 1000,
+    "life": null,
+    "characterId": "zoro",
+    "defaultVariantId": "zoro_egghead"
+  }
+]

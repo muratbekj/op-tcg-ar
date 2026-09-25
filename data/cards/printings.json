@@ -1,0 +1,35 @@
+[
+  {
+    "id": "OP05-119_p0",
+    "cardId": "OP05-119",
+    "kind": "base",
+    "rarity": "SEC",
+    "language": "en",
+    "artUrl": null,
+    "artCrop": [0.06, 0.08, 0.88, 0.52],
+    "embeddingRow": null,
+    "variantId": null
+  },
+  {
+    "id": "OP05-119_p1",
+    "cardId": "OP05-119",
+    "kind": "parallel",
+    "rarity": "SEC",
+    "language": "en",
+    "artUrl": null,
+    "artCrop": [0.0, 0.0, 1.0, 1.0],
+    "embeddingRow": null,
+    "variantId": "luffy_gear5"
+  },
+  {
+    "id": "OP06-118_p0",
+    "cardId": "OP06-118",
+    "kind": "base",
+    "rarity": "SEC",
+    "language": "en",
+    "artUrl": null,
+    "artCrop": [0.06, 0.08, 0.88, 0.52],
+    "embeddingRow": null,
+    "variantId": null
+  }
+]
