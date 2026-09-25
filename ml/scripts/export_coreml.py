@@ -1,7 +1,6 @@
-"""Export a fine-tuned embedding model to Core ML (.mlpackage).
+"""Entry point; see oplab/export.py (run with --help)."""
 
-Only needed once Vision feature prints plateau. If used, EmbeddingEngine.swift switches to the
-Core ML model and printings.f32 must be regenerated with the same model.
-"""
+from oplab.export import main
 
-raise SystemExit("export_coreml.py: not implemented yet")
+if __name__ == "__main__":
+    main()

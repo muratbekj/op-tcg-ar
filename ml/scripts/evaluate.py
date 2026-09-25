@@ -1,8 +1,6 @@
-"""Evaluate recognition on the fixed test set.
+"""Entry point; see oplab/evaluate.py (run with --help)."""
 
-Report top-1 and top-3 accuracy, plus precision and recall per set and per rarity, and flag hard
-cases (foils, manga rares, glare, steep angles). Append results to a table over time so matcher
-changes are compared on the same test set.
-"""
+from oplab.evaluate import main
 
-raise SystemExit("evaluate.py: not implemented yet")
+if __name__ == "__main__":
+    main()

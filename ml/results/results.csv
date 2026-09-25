@@ -1,0 +1,2 @@
+timestamp,name,backend,index,index_printings,sources,ocr,n,skipped,detection,top1,top3,top1_given_detected,card_top1,variant_top1,ocr_used,median_ms,negatives,suggested_threshold
+20260925-132157,featureprint-baseline,vision-featureprint-r2,printings.f32,14,synth,True,196,0,0.8571,0.7704,0.8469,0.8988,0.8571,1.0,0.1429,19.4,150,0.8
