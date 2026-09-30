@@ -69,3 +69,46 @@ def test_fetch_local_copies_this_macs_shipment(tmp_path):
     out = tmp_path / "staging"
     pull.fetch("local", "", out, run=lambda *a, **k: pytest.fail("no rsync for local"), local_shipped=staged)
     assert shipped.read(out)["name"] == "vX"
+
+
+def test_install_failure_while_copying_model_leaves_everything_untouched(tmp_path, monkeypatch):
+    staged = shipment(tmp_path, backend="coreml:CardEmbedder@v1", with_model=True, version="v1")
+    data, models = targets(tmp_path)
+    (data / "printings.f32").write_bytes(b"old")
+    (models / "CardEmbedder.mlpackage").mkdir()
+    monkeypatch.setattr(pull.shutil, "copytree", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(pull.PullError, match="untouched"):
+        pull.install(staged, data, models)
+    assert (data / "printings.f32").read_bytes() == b"old" and (models / "CardEmbedder.mlpackage").exists()
+    assert not list(data.glob("*.incoming")) and not list(models.glob("*.incoming"))
+
+
+def test_install_replaces_an_existing_model(tmp_path):
+    staged = shipment(tmp_path, backend="coreml:CardEmbedder@v2", with_model=True, version="v2")
+    data, models = targets(tmp_path)
+    old = models / "CardEmbedder.mlpackage"
+    old.mkdir()
+    (old / "stale.txt").write_text("x")
+    pull.install(staged, data, models)
+    assert (old / "Manifest.json").exists() and not (old / "stale.txt").exists()
+    assert sorted(p.name for p in models.iterdir()) == ["CardEmbedder.mlpackage"]
+
+
+def test_fetch_reports_missing_rsync_and_exit_codes(tmp_path):
+    import subprocess
+
+    def missing(cmd, check):
+        raise FileNotFoundError("rsync")
+
+    with pytest.raises(pull.PullError, match="rsync not found"):
+        pull.fetch("h", "r", tmp_path / "s", run=missing)
+
+    def code(n):
+        def run(cmd, check):
+            raise subprocess.CalledProcessError(n, cmd)
+        return run
+
+    with pytest.raises(pull.PullError, match="run make ship-baseline there"):
+        pull.fetch("h", "r", tmp_path / "s", run=code(23))
+    with pytest.raises(pull.PullError, match="ssh failed"):
+        pull.fetch("h", "r", tmp_path / "s", run=code(255))
