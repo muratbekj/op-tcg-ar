@@ -59,3 +59,11 @@ def test_report_shows_intervals():
     report = evaluate.render_report("run", meta, {"summary": summary, "groups": {}, "hard_cases": []}, 0)
     assert "| Top-1 printing | 50.0% (9.5–90.5%) |" in report
     assert "| Within-group top-1 (right code, ≥2 printings) | – |" in report
+
+
+def test_interval_columns_flatten_summary_intervals():
+    summary = {"top1_ci": [0.1, 0.9], "ocr_accuracy_ci": [0.2, 0.8], "within_group_ci": [None, None]}
+    columns = evaluate.interval_columns(summary)
+    assert columns == {"top1_low": 0.1, "top1_high": 0.9, "ocr_accuracy_low": 0.2, "ocr_accuracy_high": 0.8,
+                       "within_group_low": None, "within_group_high": None}
+    assert set(columns) <= set(evaluate.RESULT_COLUMNS)

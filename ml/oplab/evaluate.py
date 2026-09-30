@@ -105,6 +105,12 @@ def append_result(row: dict) -> None:
         writer.writerow({k: row.get(k) for k in RESULT_COLUMNS})
 
 
+def interval_columns(summary: dict) -> dict:
+    """Flatten the summary's [low, high] intervals into results.csv columns."""
+    return {f"{metric}_{bound}": summary[f"{metric}_ci"][i]
+            for metric in ("top1", "ocr_accuracy", "within_group") for i, bound in enumerate(("low", "high"))}
+
+
 def split_negatives(negatives: list[dict], indexed: set[str],
                     card_ids: dict[str, str] | None = None) -> tuple[list[dict], list[dict]]:
     """Negatives are photos of cards outside the roster. When the index covers their printing (a
@@ -165,10 +171,7 @@ def main(argv: list[str] | None = None) -> None:
         args.index, [{"id": e["id"], "path": e["path"]} for e in negatives], "photo", ocr=not args.no_ocr, model=args.model,
         catalog=catalog)
     curve = metrics.rejection_curve(result["rows"], negative_predictions)
-    result["rejection"] = {"top1_low": result["summary"]["top1_ci"][0], "top1_high": result["summary"]["top1_ci"][1],
-        "ocr_accuracy_low": result["summary"]["ocr_accuracy_ci"][0], "ocr_accuracy_high": result["summary"]["ocr_accuracy_ci"][1],
-        "within_group_low": result["summary"]["within_group_ci"][0], "within_group_high": result["summary"]["within_group_ci"][1],
-        "negatives": len(negative_predictions), "curve": curve,
+    result["rejection"] = {"negatives": len(negative_predictions), "curve": curve,
                            "suggested_threshold": metrics.suggest_threshold(curve)}
     predictions += negative_predictions
 
@@ -185,6 +188,7 @@ def main(argv: list[str] | None = None) -> None:
         "index": args.index.name, "index_printings": len(indexed),
         "sources": "+".join(sorted({e["tags"]["source"] for e in in_index})),
         "ocr": not args.no_ocr, "skipped": skipped, **result["summary"],
+        **interval_columns(result["summary"]),
         "negatives": len(negative_predictions), "suggested_threshold": result["rejection"]["suggested_threshold"],
     })
     print(report)
