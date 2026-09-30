@@ -16,6 +16,27 @@ public struct RecognitionResult: Sendable {
     public var best: RecognitionCandidate? { candidates.first }
 }
 
+extension RecognitionResult {
+    /// "OP05-119 · 4 printings", or "Matched by art · 5 candidates" when no catalog code was read.
+    public var groupSummary: String {
+        switch method {
+        case .ocrUnique, .ocrVision:
+            "\(ocrCardID ?? "?") · \(groupSize) printing\(groupSize == 1 ? "" : "s")"
+        case .visionOnly:
+            "Matched by art · \(candidates.count) candidate\(candidates.count == 1 ? "" : "s")"
+        }
+    }
+}
+
+/// One camera frame's outcome, for the live debug overlay: where the card was (if anywhere) and the
+/// recognition result (if one passed).
+public struct RecognitionAttempt: Sendable {
+    /// `nil` when no card-shaped rectangle was detected.
+    public let quad: CardQuad?
+    /// `nil` when nothing was detected or a vision-only match fell below the threshold.
+    public let result: RecognitionResult?
+}
+
 /// The full recognition pipeline, shared by the app and the `cardvision` CLI so offline
 /// evaluation measures exactly what runs on the phone.
 ///
@@ -29,22 +50,31 @@ public struct CardRecognizer {
     public var candidateCount = 5
     /// Vision-only best matches below this return `nil` (probably not a card). 0 disables.
     public var minimumSimilarity: Float = RecognitionDefaults.minimumSimilarity
+    /// See `RecognitionDefaults.codeArtMargin`.
+    public var codeArtMargin: Float = RecognitionDefaults.codeArtMargin
 
     private let detector: CardDetector
-    private let ocr = CardOCR()
+    private let ocr: CardOCR
     private let context: CIContext
 
     public init(engine: EmbeddingEngine, matcher: VariantMatcher, context: CIContext = CIContext()) {
         self.engine = engine
         self.matcher = matcher
         self.context = context
+        ocr = CardOCR(context: context)
         detector = CardDetector(context: context)
+    }
+
+    /// Photo or camera frame: find the card, then recognize it. Reports the detected quad even when
+    /// recognition returns nothing.
+    public func attempt(photo: CIImage) throws -> RecognitionAttempt {
+        guard let card = try detector.detect(in: photo) else { return RecognitionAttempt(quad: nil, result: nil) }
+        return RecognitionAttempt(quad: card.quad, result: try recognize(canonicalCard: card.crop))
     }
 
     /// Photo or camera frame: find the card first. `nil` when no card-shaped rectangle is found.
     public func recognize(photo: CIImage) throws -> RecognitionResult? {
-        guard let card = try detector.detectCard(in: photo) else { return nil }
-        return try recognize(canonicalCard: card)
+        try attempt(photo: photo).result
     }
 
     /// An image that is already just the card (reference art, logged scan crop).
@@ -59,15 +89,12 @@ public struct CardRecognizer {
 
         if let read, read.inCatalog {
             let group = matcher.catalog.printings(forCode: read.code)
-            if group.count == 1 {
+            let embedding = try engine.embedding(for: read.crop)
+            let ranked = matcher.rankGroup(group, embedding: embedding)
+            if codeMatchesArt(ranked, embedding: embedding) {
                 return RecognitionResult(
-                    crop: read.crop, candidates: RecognitionCandidate.rankGroup(group, matches: []),
-                    ocrCardID: read.code, flipped: read.flipped, method: .ocrUnique, groupSize: 1)
-            }
-            if group.count > 1 {
-                return RecognitionResult(
-                    crop: read.crop, candidates: matcher.rankGroup(group, embedding: try engine.embedding(for: read.crop)),
-                    ocrCardID: read.code, flipped: read.flipped, method: .ocrVision, groupSize: group.count)
+                    crop: read.crop, candidates: ranked, ocrCardID: read.code, flipped: read.flipped,
+                    method: group.count == 1 ? .ocrUnique : .ocrVision, groupSize: group.count)
             }
         }
 
@@ -85,29 +112,35 @@ public struct CardRecognizer {
             ocrCardID: read?.code, flipped: best.flipped, method: .visionOnly, groupSize: 0)
     }
 
+    /// Trust the read code unless the art clearly belongs to a printing outside its group. A group
+    /// with no indexed member can't be checked, so its code is trusted.
+    private func codeMatchesArt(_ ranked: [RecognitionCandidate], embedding: [Float]) -> Bool {
+        guard let groupBest = ranked.compactMap(\.similarity).max(),
+              let overall = matcher.artMatches(for: embedding, k: 1).first else { return true }
+        return overall.similarity < max(minimumSimilarity, groupBest + codeArtMargin)
+    }
+
     /// The card code from the upright crop, else from the 180°-rotated one. Only a code in the
     /// catalog counts as valid; `inCatalog == false` means the raw read is kept for analysis only.
     private func readCode(upright: CGImage, rotated: CGImage?) -> (crop: CGImage, code: String, flipped: Bool, inCatalog: Bool)? {
-        let uprightRead = try? ocr.cardID(in: upright)
-        var rotatedRead: String?
-        if let rotated, !Self.isValid(uprightRead, matcher.catalog) { rotatedRead = try? ocr.cardID(in: rotated) }
-        guard let pick = Self.chooseRead(upright: uprightRead, rotated: rotatedRead, isValid: { !matcher.catalog.printings(forCode: $0).isEmpty })
-        else { return nil }
+        let isValid: (String) -> Bool = { !matcher.catalog.printings(forCode: $0).isEmpty }
+        let uprightReads = (try? ocr.cardIDs(in: upright)) ?? []
+        var rotatedReads: [String] = []
+        if let rotated, !uprightReads.contains(where: isValid) {
+            rotatedReads = (try? ocr.cardIDs(in: rotated)) ?? []
+        }
+        guard let pick = Self.chooseRead(upright: uprightReads, rotated: rotatedReads, isValid: isValid) else { return nil }
         return (pick.flipped ? (rotated ?? upright) : upright, pick.code, pick.flipped, pick.valid)
     }
 
-    private static func isValid(_ code: String?, _ catalog: FullCatalog) -> Bool {
-        code.map { !catalog.printings(forCode: $0).isEmpty } ?? false
-    }
-
-    /// Picks the read to use: a valid upright code, else a valid rotated one, else the raw read
-    /// (upright first, else rotated) flagged invalid.
-    static func chooseRead(upright: String?, rotated: String?, isValid: (String) -> Bool)
+    /// Picks the read to use: the first valid upright candidate, else the first valid rotated one,
+    /// else the first raw read (upright first, else rotated) flagged invalid.
+    static func chooseRead(upright: [String], rotated: [String], isValid: (String) -> Bool)
         -> (code: String, flipped: Bool, valid: Bool)? {
-        if let upright, isValid(upright) { return (upright, false, true) }
-        if let rotated, isValid(rotated) { return (rotated, true, true) }
-        if let upright { return (upright, false, false) }
-        if let rotated { return (rotated, true, false) }
+        if let code = upright.first(where: isValid) { return (code, false, true) }
+        if let code = rotated.first(where: isValid) { return (code, true, true) }
+        if let code = upright.first { return (code, false, false) }
+        if let code = rotated.first { return (code, true, false) }
         return nil
     }
 

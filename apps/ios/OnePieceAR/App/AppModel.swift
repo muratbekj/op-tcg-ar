@@ -1,5 +1,6 @@
 import ARKit
 import CardVision
+import ImageIO
 import OnePieceKit
 import RealityKit
 
@@ -34,19 +35,34 @@ final class AppModel {
     }
 
     private(set) var catalog = CardCatalog(cards: [], printings: [], variants: [])
+    /// Every printing recognition can identify (catalog.json), or the roster when it isn't bundled.
+    private(set) var fullCatalog = FullCatalog(entries: [])
     private(set) var loadError: String?
     private(set) var mode: Mode = .solo
     private(set) var slots: [Int: Slot] = [:]
     /// Which slot the next scan or pick fills.
     private(set) var targetSlot = 0
     private(set) var scanState: ScanState = .off
-    /// The most recent recognition, kept for the "not this one?" list.
-    private(set) var lastRecognition: (slot: Int, result: RecognitionResult)?
+    /// The most recent scan: what recognition returned, what's shown now, and how the user labeled it.
+    struct ScanOutcome {
+        let slot: Int
+        let result: RecognitionResult
+        let scanID: String?
+        /// The printing shown now: spawned if it's in the roster, otherwise in the info panel.
+        var pickID: String
+        var label: ScanLabel
+    }
+
+    private(set) var lastScan: ScanOutcome?
+    /// A recognized printing outside the roster, shown in the card-info panel instead of spawning.
+    private(set) var identified: CatalogEntry?
+    /// The latest frame's outcome while scanning with the debug overlay on (including no-match frames).
+    private(set) var debugAttempt: RecognitionAttempt?
     private(set) var recognitionSummary: String?
     private(set) var banner: String?
 
     var showingPicker = false
-    var showingAlternatives = false
+    var showingGroup = false
     var showingSettings = false
 
     let settings = AppSettings()
@@ -54,12 +70,16 @@ final class AppModel {
     let battle = BattleCoordinator()
     @ObservationIgnored let assets = AssetService()
     @ObservationIgnored let scanLog = ScanLogger()
+    @ObservationIgnored let thumbnails = ThumbnailStore(
+        directory: URL.cachesDirectory.appending(path: "Thumbnails", directoryHint: .isDirectory))
     @ObservationIgnored private let recognition = RecognitionService()
     @ObservationIgnored private let spawner: CharacterSpawner
     @ObservationIgnored private var anchors: [Int: CardAnchor] = [:]
     @ObservationIgnored private var controllers: [Int: CharacterController] = [:]
     @ObservationIgnored private var selectionGeneration: [Int: Int] = [:]
     @ObservationIgnored private var recognitionBusy = false
+    /// Bumped when a scan starts or everything is cleared, so a result still being logged is dropped.
+    @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored private var lastRecognitionAttempt = Date.distantPast
     @ObservationIgnored private var bootstrapped = false
 
@@ -109,17 +129,16 @@ final class AppModel {
         let art = catalog.printings.compactMap { printing in
             assets.cardArt(for: printing).map { (printingID: printing.id, image: $0) }
         }
-        let fullCatalog: FullCatalog
         if let url = Bundle.main.url(forResource: "catalog", withExtension: "json"), let loaded = try? FullCatalog.load(from: url) {
-            fullCatalog = loaded
+            self.fullCatalog = loaded
         } else {
             print("AppModel: no catalog.json bundled; recognizing roster printings only")
-            fullCatalog = FullCatalog(roster: catalog)
+            self.fullCatalog = FullCatalog(roster: catalog)
         }
         let bundle = Bundle.main
         if await recognition.prepare(
             catalog: catalog,
-            fullCatalog: fullCatalog,
+            fullCatalog: self.fullCatalog,
             bundledIndex: bundle.url(forResource: "printings", withExtension: "f32"),
             bundledMetadata: bundle.url(forResource: "printings.meta", withExtension: "json"),
             bundledModel: bundle.url(forResource: RecognitionService.modelName, withExtension: "mlmodelc"),
@@ -136,10 +155,12 @@ final class AppModel {
 
     /// Removes every character and anchor, e.g. to start a new battle.
     func clearAll() {
+        scanGeneration += 1
         stopScan()
         for slot in Array(slots.keys) { clear(slot: slot) }
         battle.reset()
-        lastRecognition = nil
+        lastScan = nil
+        identified = nil
         targetSlot = 0
         banner = nil
     }
@@ -154,7 +175,8 @@ final class AppModel {
     /// - Parameters:
     ///   - crop: the scanned card image, used as the tracking image when no card art is bundled.
     ///   - scanID: set when this selection came from a logged scan.
-    func select(_ printing: Printing, slot requestedSlot: Int? = nil, crop: CGImage? = nil, scanID: String? = nil) async {
+    ///   - fromScan: the selection shows the last scan's pick, so `lastScan` stays.
+    func select(_ printing: Printing, slot requestedSlot: Int? = nil, crop: CGImage? = nil, scanID: String? = nil, fromScan: Bool = false) async {
         let slot = requestedSlot ?? targetSlot
         guard let card = catalog.card(for: printing), let variant = catalog.variant(for: printing) else {
             banner = "No character variant for \(printing.id)"
@@ -164,7 +186,8 @@ final class AppModel {
         selectionGeneration[slot] = generation
 
         clear(slot: slot)
-        if scanID == nil, lastRecognition?.slot == slot { lastRecognition = nil }
+        identified = nil
+        if !fromScan, lastScan?.slot == slot { lastScan = nil }
         slots[slot] = Slot(
             index: slot, printing: printing, card: card, variant: variant, placement: .waitingForCard,
             usesPlaceholder: !assets.hasModel(for: variant), scanID: scanID)
@@ -305,12 +328,14 @@ final class AppModel {
             showingPicker = true
             return
         }
+        scanGeneration += 1
         scanState = .searching
         session.onFrame = { [weak self] frame in self?.consider(frame) }
     }
 
     func stopScan() {
         scanState = .off
+        debugAttempt = nil
         session.onFrame = nil
     }
 
@@ -321,25 +346,75 @@ final class AppModel {
         lastRecognitionAttempt = now
         let buffer = PixelBufferBox(buffer: frame.capturedImage)
         Task {
-            let result = try? await recognition.recognize(buffer)
+            let attempt = try? await recognition.attempt(buffer)   // try? flattens the optional
             recognitionBusy = false
-            guard scanState == .searching, let result, let best = result.best,
-                  let printing = catalog.printing(id: best.printingID) else { return }
+            guard scanState == .searching else { return }
+            if settings.showDebug { debugAttempt = attempt }
+            guard let result = attempt?.result, let best = result.best else { return }
             stopScan()
             let slot = targetSlot
-            let scanID = settings.logScans ? try? await scanLog.log(result, spawnedPrintingID: printing.id) : nil
-            lastRecognition = (slot, result)
-            await select(printing, slot: slot, crop: result.crop, scanID: scanID)
+            let generation = scanGeneration
+            let scanID = settings.logScans ? try? await scanLog.log(result, spawnedPrintingID: best.printingID) : nil
+            guard generation == scanGeneration else { return }
+            lastScan = ScanOutcome(slot: slot, result: result, scanID: scanID, pickID: best.printingID, label: .unlabeled)
+            await show(best.printingID, slot: slot, crop: result.crop, scanID: scanID)
         }
     }
 
-    /// "Not this one?": swap to another ranked candidate and record the correction.
-    func correct(to candidate: RecognitionCandidate) async {
-        guard let (slot, result) = lastRecognition, let printing = catalog.printing(id: candidate.printingID) else { return }
-        let scanID = slots[slot]?.scanID
-        if let scanID {
-            try? await scanLog.markCorrected(scanID: scanID, finalPrintingID: printing.id)
+    /// Spawns a roster printing, or shows any other catalog printing in the info panel.
+    private func show(_ printingID: String, slot: Int, crop: CGImage?, scanID: String?) async {
+        if let printing = catalog.printing(id: printingID) {
+            await select(printing, slot: slot, crop: crop, scanID: scanID, fromScan: true)
+        } else {
+            // Invalidate any in-flight select for this slot so its spawn is despawned on return.
+            selectionGeneration[slot, default: 0] += 1
+            clear(slot: slot)
+            // Battle: the emptied slot must be the next one filled.
+            if mode == .battle { targetSlot = min(targetSlot, slot) }
+            identified = fullCatalog.entry(id: printingID)
         }
-        await select(printing, slot: slot, crop: result.crop, scanID: scanID)
+    }
+
+    /// The user's answer for the last scan: the pick (a confirmation) or another printing from the
+    /// group list or the manual picker (a correction). Labels the scan log and shows the choice.
+    func choose(_ printingID: String) async {
+        guard var scan = lastScan else { return }
+        let changed = printingID != scan.pickID
+        scan.pickID = printingID
+        scan.label = ScanLabel(finalPrintingID: printingID, firstGuess: scan.result.best?.printingID ?? printingID)
+        lastScan = scan
+        if let scanID = scan.scanID {
+            try? await scanLog.resolve(scanID: scanID, to: printingID)
+        }
+        if changed {
+            await show(printingID, slot: scan.slot, crop: scan.result.crop, scanID: scan.scanID)
+        }
+    }
+
+    /// The current pick is right.
+    func confirmPick() async {
+        guard let pick = lastScan?.pickID else { return }
+        await choose(pick)
+    }
+
+    // MARK: Catalog display
+
+    func isInRoster(_ printingID: String) -> Bool {
+        catalog.printing(id: printingID) != nil
+    }
+
+    /// "Monkey.D.Luffy · parallel" for any catalog printing.
+    func displayName(for printingID: String) -> String {
+        guard let entry = fullCatalog.entry(id: printingID) else { return printingID }
+        return "\(entry.name) · \(entry.kind)"
+    }
+
+    /// Art for any catalog printing: bundled roster art when there is some, otherwise the cached or
+    /// downloaded thumbnail. `nil` offline or when the printing has no art URL.
+    func thumbnail(for printingID: String) async -> CGImage? {
+        if let printing = catalog.printing(id: printingID), let art = assets.cardArt(for: printing) { return art }
+        guard let entry = fullCatalog.entry(id: printingID), let data = await thumbnails.data(for: entry),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 }

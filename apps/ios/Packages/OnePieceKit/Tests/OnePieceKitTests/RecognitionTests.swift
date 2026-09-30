@@ -88,6 +88,31 @@ import Testing
         #expect(CardNumberParser.cardID(in: "Monkey D. Luffy 6000") == nil)
         #expect(CardNumberParser.cardID(in: "OP05-11") == nil)
     }
+
+    @Test(arguments: [
+        ("OP0S-119 GIC 2", "OP05-119"),   // S read for 5
+        ("OPO5-1I9", "OP05-119"),         // O for 0, I for 1
+        ("OP05 119 SEC", "OP05-119"),     // dash missing
+        ("OP05119", "OP05-119"),          // no separator at all
+        ("ST0I-0I2", "ST01-012"),
+        ("eb0l–00l", "EB01-001"),         // lowercase l
+        ("OP06-1B8", "OP06-188"),         // B for 8
+        ("P-O42", "P-042"),
+    ])
+    func parsesOCRConfusions(text: String, expected: String) {
+        #expect(CardNumberParser.cardID(in: text) == expected)
+    }
+
+    @Test func listsEveryCandidateOnce() {
+        #expect(CardNumberParser.cardIDs(in: "OP05-118 OP05-119 OP05-118") == ["OP05-118", "OP05-119"])
+        #expect(CardNumberParser.cardIDs(in: "OP01-001 P-042") == ["OP01-001", "P-042"])
+        #expect(CardNumberParser.cardIDs(in: "Monkey D. Luffy 6000").isEmpty)
+    }
+
+    @Test func promoStillNeedsItsDash() {
+        // "P" alone is too common in card text to accept "P 042".
+        #expect(CardNumberParser.cardID(in: "P 042") == nil)
+    }
 }
 
 @Suite struct RankGroupTests {
@@ -121,5 +146,18 @@ import Testing
 
     @Test func methodRawValues() {
         #expect([RecognitionMethod.ocrUnique, .ocrVision, .visionOnly].map(\.rawValue) == ["ocr-unique", "ocr+vision", "vision-only"])
+    }
+}
+
+@Suite struct CardQuadTests {
+    @Test func sensorCornersRotateBackToLandscape() {
+        // Full-frame quad in the portrait image (Vision coords, origin bottom-left).
+        let quad = CardQuad(topLeft: CGPoint(x: 0, y: 1), topRight: CGPoint(x: 1, y: 1),
+                            bottomRight: CGPoint(x: 1, y: 0), bottomLeft: CGPoint(x: 0, y: 0))
+        // The portrait image is the sensor image rotated 90° clockwise (`.oriented(.right)`):
+        // portrait top-left came from sensor bottom-left, top-right from top-left, and so on.
+        #expect(quad.sensorCorners == [CGPoint(x: 0, y: 1), CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0), CGPoint(x: 1, y: 1)])
+        let point = CardQuad(topLeft: CGPoint(x: 0.25, y: 0.75), topRight: .zero, bottomRight: .zero, bottomLeft: .zero)
+        #expect(point.sensorCorners[0] == CGPoint(x: 0.25, y: 0.75))
     }
 }

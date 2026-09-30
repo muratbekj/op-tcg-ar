@@ -16,6 +16,10 @@ struct ExperienceView: View {
                 UnsupportedDeviceView()
             }
 
+            if model.settings.showDebug, model.scanState == .searching {
+                RecognitionDebugOverlay()
+            }
+
             if model.scanState == .searching {
                 ScanGuide()
             }
@@ -25,8 +29,8 @@ struct ExperienceView: View {
                 if let status = model.statusText {
                     StatusPill(text: status)
                 }
-                if model.settings.showDebug, let recognition = model.lastRecognition {
-                    RecognitionDebugView(result: recognition.result)
+                if model.settings.showDebug, model.debugAttempt != nil || model.lastScan != nil {
+                    RecognitionDebugView(attempt: model.debugAttempt, lastResult: model.lastScan?.result)
                 }
                 Spacer()
                 bottomControls
@@ -40,8 +44,8 @@ struct ExperienceView: View {
                 Task { await model.select(printing) }
             }
         }
-        .sheet(isPresented: $model.showingAlternatives) {
-            AlternativesSheet()
+        .sheet(isPresented: $model.showingGroup) {
+            GroupSheet()
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $model.showingSettings) {
@@ -63,10 +67,13 @@ struct ExperienceView: View {
     }
 
     @ViewBuilder private var bottomControls: some View {
-        if model.lastRecognition != nil, model.scanState == .off {
-            Button("Not this one?") { model.showingAlternatives = true }
-                .buttonStyle(.bordered)
-                .tint(.white)
+        if model.scanState == .off {
+            if let entry = model.identified {
+                CardInfoPanel(entry: entry)
+            }
+            if let scan = model.lastScan {
+                ScanResultStrip(scan: scan)
+            }
         }
         switch model.mode {
         case .solo:
@@ -210,29 +217,6 @@ private struct ScanGuide: View {
             .frame(width: 230)
             .shadow(radius: 6)
             .allowsHitTesting(false)
-    }
-}
-
-private struct RecognitionDebugView: View {
-    let result: RecognitionResult
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(decorative: result.crop, scale: 1)
-                .resizable()
-                .aspectRatio(CardGeometry.aspectRatio, contentMode: .fit)
-                .frame(width: 60)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("OCR: \(result.ocrCardID ?? "–")  \(result.method.rawValue)  n=\(result.groupSize)")
-                ForEach(result.candidates.prefix(3)) { candidate in
-                    Text("\(candidate.printingID)  \(candidate.similarity.map { String(format: "%.3f", $0) } ?? "–")")
-                }
-            }
-            .font(.caption.monospaced())
-            Spacer()
-        }
-        .padding(10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

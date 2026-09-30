@@ -37,7 +37,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Recognition")
                 } footer: {
-                    Text("Scan logs live in Documents/Scans. Copy them to the Mac from Finder (device > Files > OnePieceAR) for evaluation.")
+                    Text("Scan logs live in Documents/Scans. Confirm or correct a scan (the ✓ on the result strip, or the printing list) to label it for training. Copy the folder to the Mac from Finder (device > Files > OnePieceAR).")
                 }
                 Section {
                     Text("Personal project. Character designs and card art belong to Eiichiro Oda / Shueisha / Bandai. Nothing here is for distribution.")

@@ -78,8 +78,8 @@ actor RecognitionService {
     }
 
     /// - Parameter frame: ARKit's captured image (landscape sensor orientation).
-    func recognize(_ frame: PixelBufferBox) throws -> RecognitionResult? {
+    func attempt(_ frame: PixelBufferBox) throws -> RecognitionAttempt? {
         // Portrait UI: the sensor image must be rotated to match what the user sees.
-        try recognizer?.recognize(photo: CIImage(cvPixelBuffer: frame.buffer).oriented(.right))
+        try recognizer?.attempt(photo: CIImage(cvPixelBuffer: frame.buffer).oriented(.right))
     }
 }
