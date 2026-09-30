@@ -1,4 +1,6 @@
 import json
+import shutil
+from pathlib import Path
 
 import pytest
 
@@ -61,3 +63,61 @@ def test_status_line(tmp_path):
     stage(tmp_path, make_sources(tmp_path), labels=20)
     assert shipped.status_line(26, tmp_path / "shipped") == (
         "shipped: v0 (vision-featureprint-r2, 2026-10-01), 6 new labels since")
+
+
+def test_validate_never_raises_on_malformed_files(tmp_path):
+    out = tmp_path / "shipped"
+    stage(tmp_path, make_sources(tmp_path))
+    (out / "printings.meta.json").write_text("{not json")
+    assert shipped.validate(out) == ["unreadable printings.meta.json"]
+    (out / "printings.meta.json").write_text("{}")
+    assert shipped.validate(out) == ["unreadable printings.meta.json"]
+    (out / "shipped.json").write_text("{not json")
+    assert shipped.validate(out) == ["unreadable shipped.json"]
+    (out / "shipped.json").write_text("{}")
+    assert len(shipped.validate(out)) == 1 and "no backend" in shipped.validate(out)[0]
+
+
+def test_validate_model_and_version_consistency(tmp_path):
+    out = tmp_path / "shipped"
+    src = make_sources(tmp_path)
+    stage(tmp_path, src)
+    (out / "CardEmbedder.mlpackage").mkdir()
+    assert shipped.validate(out) == [
+        "CardEmbedder.mlpackage has no Manifest.json",
+        "model version None doesn't match backend vision-featureprint-r2"]
+    (out / "CardEmbedder.mlpackage" / "Manifest.json").write_text("{}")
+    assert shipped.validate(out) == ["model version None doesn't match backend vision-featureprint-r2"]
+    shutil.rmtree(out / "CardEmbedder.mlpackage")
+    info = json.loads((out / "shipped.json").read_text())
+    info["modelVersion"] = "v1"
+    (out / "shipped.json").write_text(json.dumps(info))
+    assert shipped.validate(out) == ["modelVersion set but backend is the feature print"]
+
+
+def test_failed_swap_keeps_previous_shipment(tmp_path, monkeypatch):
+    src = make_sources(tmp_path)
+    stage(tmp_path, src, name="v0")
+    real_rename = Path.rename
+
+    def flaky(self, target):
+        if self.name == "shipped.staging":
+            raise OSError("disk trouble")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", flaky)
+    with pytest.raises(OSError):
+        stage(tmp_path, src, name="v1")
+    monkeypatch.undo()
+    assert shipped.read(tmp_path / "shipped")["name"] == "v0" and shipped.validate(tmp_path / "shipped") == []
+    assert not (tmp_path / "shipped.old").exists()
+
+
+def test_missing_source_leaves_no_staging_and_old_shipment(tmp_path):
+    src = make_sources(tmp_path)
+    stage(tmp_path, src, name="v0")
+    (src / "catalog.json").unlink()
+    with pytest.raises(FileNotFoundError):
+        stage(tmp_path, src, name="v1")
+    assert not (tmp_path / "shipped.staging").exists()
+    assert shipped.read(tmp_path / "shipped")["name"] == "v0"

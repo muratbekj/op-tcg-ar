@@ -24,44 +24,83 @@ def read(directory: Path = paths.SHIPPED) -> dict | None:
     return io.read_json(path) if path.exists() else None
 
 
+def _backend(path: Path) -> str | None:
+    """The `backend` of a JSON file, or None when it's unreadable or has none."""
+    try:
+        value = io.read_json(path)["backend"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return value if isinstance(value, str) else None
+
+
 def validate(directory: Path) -> list[str]:
-    info = read(directory)
-    if info is None:
+    """Lists everything wrong with `directory`; never raises on malformed contents."""
+    if not (directory / INFO).exists():
         return [f"no {INFO} in {directory}"]
+    try:
+        info = io.read_json(directory / INFO)
+    except (OSError, ValueError):
+        return [f"unreadable {INFO}"]
+    backend = info.get("backend") if isinstance(info, dict) else None
+    if not isinstance(backend, str):
+        return [f"unreadable {INFO}: no backend"]
     problems = [f"missing {name}" for name in FILES if not (directory / name).exists()]
     meta_path = directory / "printings.meta.json"
-    if meta_path.exists() and io.read_json(meta_path)["backend"] != info["backend"]:
-        problems.append(f"index backend {io.read_json(meta_path)['backend']} doesn't match shipped backend {info['backend']}")
-    if (directory / MODEL_DIR).exists():
-        expected = f"coreml:CardEmbedder@{info.get('modelVersion')}"
-        if info["backend"] != expected:
-            problems.append(f"model version {info.get('modelVersion')} doesn't match backend {info['backend']}")
-    elif info["backend"] != FEATURE_PRINT:
-        problems.append(f"backend {info['backend']} needs {MODEL_DIR}, which isn't shipped")
+    if meta_path.exists():
+        index_backend = _backend(meta_path)
+        if index_backend is None:
+            problems.append("unreadable printings.meta.json")
+        elif index_backend != backend:
+            problems.append(f"index backend {index_backend} doesn't match shipped backend {backend}")
+    version = info.get("modelVersion")
+    model = directory / MODEL_DIR
+    if model.exists():
+        if not (model / "Manifest.json").exists():
+            problems.append(f"{MODEL_DIR} has no Manifest.json")
+        if backend != f"coreml:CardEmbedder@{version}":
+            problems.append(f"model version {version} doesn't match backend {backend}")
+    elif backend != FEATURE_PRINT:
+        problems.append(f"backend {backend} needs {MODEL_DIR}, which isn't shipped")
+    if backend == FEATURE_PRINT and version is not None:
+        problems.append("modelVersion set but backend is the feature print")
     return problems
 
 
 def stage(name: str, index: Path, meta: Path, catalog: Path, labels: int, directory: Path = paths.SHIPPED,
           model: Path | None = None, model_version: str | None = None, today: str | None = None) -> dict:
-    """Replaces `directory` with this version, atomically: builds it next to the old one, validates,
-    then swaps. A shipment that wouldn't validate raises ValueError and the old one stays."""
+    """Replaces `directory` with this version: builds it next to the old one, validates, then swaps by
+    renames (old aside, new in, old deleted). A shipment that wouldn't validate, or any failure along the
+    way, raises and the old shipment stays in place."""
     staging = directory.with_name(directory.name + ".staging")
+    aside = directory.with_name(directory.name + ".old")
     shutil.rmtree(staging, ignore_errors=True)
-    staging.mkdir(parents=True)
-    shutil.copy2(index, staging / "printings.f32")
-    shutil.copy2(meta, staging / "printings.meta.json")
-    shutil.copy2(catalog, staging / "catalog.json")
-    if model is not None:
-        shutil.copytree(model, staging / MODEL_DIR)
-    info = {"name": name, "backend": io.read_json(meta)["backend"], "modelVersion": model_version,
-            "shipped": today or date.today().isoformat(), "labels": labels}
-    io.write_json(staging / INFO, info)
-    problems = validate(staging)
-    if problems:
-        shutil.rmtree(staging)
-        raise ValueError("; ".join(problems))
-    shutil.rmtree(directory, ignore_errors=True)
-    staging.rename(directory)
+    try:
+        staging.mkdir(parents=True)
+        shutil.copy2(index, staging / "printings.f32")
+        shutil.copy2(meta, staging / "printings.meta.json")
+        shutil.copy2(catalog, staging / "catalog.json")
+        if model is not None:
+            shutil.copytree(model, staging / MODEL_DIR)
+        info = {"name": name, "backend": io.read_json(meta)["backend"], "modelVersion": model_version,
+                "shipped": today or date.today().isoformat(), "labels": labels}
+        io.write_json(staging / INFO, info)
+        problems = validate(staging)
+        if problems:
+            raise ValueError("; ".join(problems))
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    shutil.rmtree(aside, ignore_errors=True)
+    had_old = directory.exists()
+    if had_old:
+        directory.rename(aside)
+    try:
+        staging.rename(directory)
+    except BaseException:
+        if had_old:
+            aside.rename(directory)
+        raise
+    shutil.rmtree(aside, ignore_errors=True)
     return info
 
 

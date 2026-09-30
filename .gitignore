@@ -43,5 +43,6 @@ apps/ios/OnePieceAR/Resources/Models/
 # Two-Mac workflow
 ml/shipped/
 ml/shipped.staging/
+ml/shipped.old/
 ml/remote.env
 ml/.pull-staging/
