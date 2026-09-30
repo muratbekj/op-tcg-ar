@@ -1606,3 +1606,134 @@ git add apps/ios/OnePieceAR/App/AppModel.swift apps/ios/OnePieceAR/AR/ARSessionM
 git rm apps/ios/OnePieceAR/Features/Scanner/AlternativesSheet.swift
 git commit -m "Show scan results with confirm/correct, a card-info panel, and a live debug overlay"
 ```
+
+---
+
+### Task 7: Guard OCR codes with an art check (run right after Task 2, before Task 3)
+
+Added after Task 2's review, which compared the before and after runs image by image. OCR hardening gained 7 images and lost 7, and every loss was an OCR misread that happens to be a real catalog code (`OP05-119` read as `OP03-119`, `OP06-118_p2` read as `OP05-118`, …). `ocr-unique` trusted the code without looking at the art. This task makes the code win only when the art doesn't clearly belong to another printing.
+
+**Spec amendment (approved by the user, 2026-09-29):** a single-printing code now runs one embedding, for the check. The spec's "group of 1 → no embedding step" becomes "group of 1 → no ranking, but the art must not contradict the code". `ocr-unique` results therefore carry a similarity.
+
+**Files:**
+- Modify: `apps/ios/Packages/OnePieceKit/Sources/OnePieceKit/Recognition/RecognitionCandidate.swift` (`RecognitionDefaults.codeArtMargin`)
+- Modify: `apps/ios/Packages/OnePieceKit/Sources/CardVision/CardRecognizer.swift` (the OCR branch of `recognize(canonicalCard:)`, new `codeMatchesArt`)
+- Modify: `apps/ios/Packages/OnePieceKit/Tests/CardVisionTests/CardVisionTests.swift` (`uniqueCodeSkipsVision` → `uniqueCodeIsCheckedAgainstArt`, two new tests)
+- Modify + commit: `ml/results/results.csv` (the eval rows from Step 6)
+- Modify: `docs/cv-pipeline.md` (step 5), `docs/superpowers/specs/2026-09-29-code-first-recognition-design.md` (one amendment line under "1. Recognition flow")
+
+**Interfaces:**
+- Produces: `RecognitionDefaults.codeArtMargin: Float` (initial value 0.08, tuned in Step 6), and `CardRecognizer.codeArtMargin` (a `public var`, defaulting to it). `RecognitionResult`, the methods, and the CLI JSON are unchanged. The one difference: `ocr-unique` candidates now carry a similarity when the printing has an index row.
+
+- [ ] **Step 1: Write the failing tests** (in `CodeFirstRecognitionTests`)
+
+Replace `uniqueCodeSkipsVision` with:
+```swift
+    @Test func uniqueCodeIsCheckedAgainstArt() throws {
+        let recognizer = try makeRecognizer([("OP05-119", 21), ("OP06-118", 22)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 21, code: "OP05-119", size: size))))
+        #expect(result.method == .ocrUnique && result.groupSize == 1)
+        #expect(result.candidates.map(\.printingID) == ["OP05-119"] && result.best?.similarity != nil)
+        #expect(result.ocrCardID == "OP05-119")
+    }
+```
+Add:
+```swift
+    @Test func wrongCatalogCodeFallsBackToArt() throws {
+        // OCR reads a real catalog code, but the art is clearly another printing's.
+        let recognizer = try makeRecognizer([("OP05-119", 100), ("OP06-118", 101)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 101, code: "OP05-119", size: size))))
+        #expect(result.method == .visionOnly && result.best?.printingID == "OP06-118")
+        #expect(result.ocrCardID == "OP05-119")   // the raw read is kept for misread analysis
+    }
+
+    @Test func wrongCodeInAMultiPrintingGroupFallsBackToArt() throws {
+        let recognizer = try makeRecognizer([("OP05-119", 110), ("OP05-119_p1", 111), ("OP06-118", 112)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 112, code: "OP05-119", size: size))))
+        #expect(result.method == .visionOnly && result.best?.printingID == "OP06-118")
+    }
+```
+The existing `sharedCodeRanksOnlyTheGroup` must keep passing. Its distractor has the *same* art as the right group member, so the art doesn't contradict the code. `thresholdOnlyAppliesToVisionOnly` must keep passing too.
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `$SWIFT_TEST --filter CodeFirstRecognitionTests`
+Expected: `uniqueCodeIsCheckedAgainstArt` fails (the similarity is nil), and both `wrong…FallsBackToArt` tests fail (the method is `ocr-unique`/`ocr+vision`).
+
+- [ ] **Step 3: Implement**
+
+In `RecognitionCandidate.swift`, inside `enum RecognitionDefaults`, add:
+```swift
+    /// A read catalog code is overruled when some printing outside its group matches the art at
+    /// least this much better than the group's best (and passes `minimumSimilarity`): the OCR most
+    /// likely misread a digit into another real code. Tuned with evaluate.py.
+    public static let codeArtMargin: Float = 0.08
+```
+In `CardRecognizer`, add the property below `minimumSimilarity`:
+```swift
+    /// See `RecognitionDefaults.codeArtMargin`.
+    public var codeArtMargin: Float = RecognitionDefaults.codeArtMargin
+```
+Replace the `if let read, read.inCatalog { … }` block in `recognize(canonicalCard:)` with:
+```swift
+        if let read, read.inCatalog {
+            let group = matcher.catalog.printings(forCode: read.code)
+            let embedding = try engine.embedding(for: read.crop)
+            let ranked = matcher.rankGroup(group, embedding: embedding)
+            if codeMatchesArt(ranked, embedding: embedding) {
+                return RecognitionResult(
+                    crop: read.crop, candidates: ranked, ocrCardID: read.code, flipped: read.flipped,
+                    method: group.count == 1 ? .ocrUnique : .ocrVision, groupSize: group.count)
+            }
+        }
+```
+and add below `readCode`:
+```swift
+    /// Trust the read code unless the art clearly belongs to a printing outside its group. A group
+    /// with no indexed member can't be checked, so its code is trusted.
+    private func codeMatchesArt(_ ranked: [RecognitionCandidate], embedding: [Float]) -> Bool {
+        guard let groupBest = ranked.compactMap(\.similarity).max(),
+              let overall = matcher.artMatches(for: embedding, k: 1).first else { return true }
+        return overall.similarity < max(minimumSimilarity, groupBest + codeArtMargin)
+    }
+```
+(`group` is never empty here, because `read.inCatalog` guarantees the code has printings.) When the check fails, execution falls through to the existing vision-only path, which keeps `ocrCardID: read?.code`.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `$SWIFT_TEST`
+Expected: every suite passes.
+
+- [ ] **Step 5: Build the CLI**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release --product cardvision --package-path apps/ios/Packages/OnePieceKit`
+Expected: `Build complete!`
+
+- [ ] **Step 6: Tune the margin with the eval**
+
+For each margin in 0.05, 0.08, 0.12:
+1. Set `RecognitionDefaults.codeArtMargin` to that value.
+2. Run `cd ml && uv run scripts/evaluate.py --name art-guard-<margin>`.
+3. Record top-1, OCR accuracy, within-group top-1, and recall by method.
+
+Keep the margin with the best top-1. On a tie, keep the larger margin, which overrules the code less often. Leave the constant at that value.
+- Compare against the `ocr-hardened` row (top-1 74.0%) and the Phase 1 baseline (top-1 74.6%, run `ml/runs/20260929-223149-code-first-featureprint`).
+- If no margin beats 74.0%, keep 0.08. Report DONE_WITH_CONCERNS with all three tables.
+
+Re-run `$SWIFT_TEST --filter CodeFirstRecognitionTests` with the final value.
+
+- [ ] **Step 7: Document**
+
+- `docs/cv-pipeline.md` step 5: after the "One printing" and "Several" bullets, add: `- The art must not contradict the code: the crop is embedded, and if a printing outside the group matches it at least \`codeArtMargin\` (<value>) better than the group's best (and above \`minimumSimilarity\`), the code is treated as a misread and the frame goes to the vision-only search, keeping the raw read.` In the "One printing" bullet, change "with no embedding" to "with no ranking".
+- Spec: under "## 1. Recognition flow", after step 5, add `**Amendment (2026-09-29):** a read catalog code is checked against the art (one embedding, also for single-printing codes); a clear art mismatch sends the frame to the vision-only path. See docs/cv-pipeline.md.`
+- Add the chosen margin's numbers to the baseline comparability note in `cv-pipeline.md`, as a line after the OCR-hardening line.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add apps/ios/Packages/OnePieceKit/Sources/OnePieceKit/Recognition/RecognitionCandidate.swift \
+        apps/ios/Packages/OnePieceKit/Sources/CardVision/CardRecognizer.swift \
+        apps/ios/Packages/OnePieceKit/Tests/CardVisionTests/CardVisionTests.swift \
+        ml/results/results.csv docs/cv-pipeline.md docs/superpowers/specs/2026-09-29-code-first-recognition-design.md
+git commit -m "Overrule OCR codes the card art clearly contradicts"
+```
