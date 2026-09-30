@@ -46,14 +46,14 @@ def roster_references(with_scans: str) -> list[dict]:
 
 
 def scan_references(with_scans: str, printing_ids: set[str] | None, seen: set[str]) -> list[dict]:
-    """Labeled device scans of train-split printings as extra reference rows (never test printings).
+    """Labeled device scans of train-split printings as extra reference rows (never test printings or frozen scans).
     `labeled`: confirmed and corrected; `corrected`: corrections only. `printing_ids` limits them to
     those printings (roster scope); None allows any. `seen` holds digests already embedded."""
     if with_scans == "none":
         return []
     entries = []
-    for record in dataset.scan_records():
-        if record["split"] != "train" or (with_scans == "corrected" and record["label"] != "corrected"):
+    for record in dataset.train_records():
+        if with_scans == "corrected" and record["label"] != "corrected":
             continue
         if printing_ids is not None and record["printingId"] not in printing_ids:
             continue

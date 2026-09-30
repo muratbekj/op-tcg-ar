@@ -116,6 +116,9 @@ accuracy. Two ways to get real data:
   ```sh
   uv run scripts/evaluate.py --testset latest --name <model>
   ```
+  Only printings in the recognition index can be frozen (the rest are reported as not freezable). Once the
+  phone's logs are deleted, `ml/datasets/raw/scans` is the only full copy of frozen crops: back it up (a
+  frozen set whose crops are gone can't be scored).
   Scans arriving later go to the pool for the next version, never into a frozen set. Train-split scans
   can become extra references: `generate_embeddings.py --with-scans labeled`.
 

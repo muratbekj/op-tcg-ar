@@ -7,6 +7,7 @@ the ground truth even if the scan is relabeled later, and its scans never return
 model is compared on the same frozen set, so its history stays comparable.
 """
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from . import dataset, io, paths
 
 MIN_SCANS = 200
 MIN_PRINTINGS = 30
+SET_FILE = re.compile(r"test-v\d+\.json")
 
 
 class FreezeError(Exception):
@@ -25,7 +27,7 @@ class MissingScans(Exception):
 
 
 def frozen_sets(directory: Path = paths.TESTSETS) -> list[dict]:
-    sets = [io.read_json(path) for path in directory.glob("test-v*.json")]
+    sets = [io.read_json(path) for path in directory.glob("test-v*.json") if SET_FILE.fullmatch(path.name)]
     return sorted(sets, key=lambda s: s["version"])
 
 
@@ -33,22 +35,24 @@ def _frozen_ids(sets: list[dict]) -> set[str]:
     return {scan["scanId"] for s in sets for scan in s["scans"]}
 
 
-def pool(records: list[dict], sets: list[dict]) -> list[dict]:
-    """Labeled test-split scans that no frozen set holds."""
+def pool(records: list[dict], sets: list[dict], indexed: set[str] | None = None) -> list[dict]:
+    """Labeled test-split scans that no frozen set holds. With `indexed`, only printings the
+    recognition index can score (a frozen scan of any other printing could never be evaluated)."""
     frozen = _frozen_ids(sets)
     return [r for r in records
-            if r["split"] == "test" and r["label"] in ("confirmed", "corrected") and r["scanId"] not in frozen]
+            if r["split"] == "test" and r["label"] in ("confirmed", "corrected") and r["scanId"] not in frozen
+            and (indexed is None or r["printingId"] in indexed)]
 
 
 def _progress(candidates: list[dict]) -> tuple[int, int]:
     return len(candidates), len({r["printingId"] for r in candidates})
 
 
-def freeze(records: list[dict], directory: Path = paths.TESTSETS, min_scans: int = MIN_SCANS,
+def freeze(records: list[dict], directory: Path = paths.TESTSETS, *, indexed: set[str], min_scans: int = MIN_SCANS,
            min_printings: int = MIN_PRINTINGS, today: str | None = None) -> dict:
     """Writes the next test-vN from the current pool, or raises FreezeError with the progress."""
     sets = frozen_sets(directory)
-    candidates = sorted(pool(records, sets), key=lambda r: r["scanId"])
+    candidates = sorted(pool(records, sets, indexed), key=lambda r: r["scanId"])
     scans, printings = _progress(candidates)
     if scans < min_scans or printings < min_printings:
         raise FreezeError(f"test pool has {scans}/{min_scans} labeled scans across {printings}/{min_printings} printings")
@@ -57,7 +61,8 @@ def freeze(records: list[dict], directory: Path = paths.TESTSETS, min_scans: int
         "name": f"test-v{version}",
         "version": version,
         "frozen": today or date.today().isoformat(),
-        "scans": [{"scanId": r["scanId"], "printingId": r["printingId"]} for r in candidates],
+        "scans": [{"scanId": r["scanId"], "printingId": r["printingId"], "label": r["label"], "method": r.get("method")}
+                  for r in candidates],
         "printings": sorted({r["printingId"] for r in candidates}),
     }
     io.write_json(directory / f"test-v{version}.json", frozen)
@@ -78,11 +83,11 @@ def load(name: str, directory: Path = paths.TESTSETS) -> dict:
 
 
 def status_lines(all_records: list[dict], sets: list[dict], min_scans: int = MIN_SCANS,
-                 min_printings: int = MIN_PRINTINGS) -> list[str]:
+                 min_printings: int = MIN_PRINTINGS, indexed: set[str] | None = None) -> list[str]:
     """Label, split, and freeze progress for `prepare_dataset.py status`. `all_records` includes unlabeled scans."""
     labeled = [r for r in all_records if r["label"] in ("confirmed", "corrected")]
     confirmed = sum(r["label"] == "confirmed" for r in labeled)
-    scans, printings = _progress(pool(all_records, sets))
+    scans, printings = _progress(pool(all_records, sets, indexed))
     next_name = f"test-v{sets[-1]['version'] + 1 if sets else 1}"
     lines = [
         f"scans: {len(all_records)} imported, {len(labeled)} labeled ({confirmed} confirmed, "
@@ -90,6 +95,15 @@ def status_lines(all_records: list[dict], sets: list[dict], min_scans: int = MIN
         f"labeled split: {sum(r['split'] == 'train' for r in labeled)} train, {sum(r['split'] == 'test' for r in labeled)} test",
         f"test pool for {next_name}: {scans}/{min_scans} scans across {printings}/{min_printings} printings",
     ]
+    if indexed is not None:
+        unfreezable = len(pool(all_records, sets)) - len(pool(all_records, sets, indexed))
+        if unfreezable:
+            lines.append(f"not freezable (printing not in the index): {unfreezable} scans")
+    current = {r["scanId"]: r["printingId"] for r in labeled}
+    relabeled = sum(1 for s in sets for scan in s["scans"]
+                    if current.get(scan["scanId"], scan["printingId"]) != scan["printingId"])
+    if relabeled:
+        lines.append(f"frozen scans relabeled since freeze: {relabeled}")
     for s in sets:
         lines.append(f"frozen: {s['name']} ({s['frozen']}, {len(s['scans'])} scans, {len(s['printings'])} printings)")
     return lines
@@ -108,5 +122,5 @@ def entries(testset: dict, scans_dir: Path = paths.SCANS, card_ids: dict[str, st
         "printingId": s["printingId"],
         "cardId": dataset.card_id_of(s["printingId"], card_ids),
         "mode": "card",
-        "tags": {"source": "scan", "testset": testset["name"]},
+        "tags": {"source": "scan", "testset": testset["name"], "label": s.get("label")},
     } for s in testset["scans"]]

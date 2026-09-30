@@ -100,3 +100,34 @@ def test_import_restores_missing_lab_scan_json(tmp_path):
     (lab / "s1" / "scan.json").unlink()
     assert dataset.import_scans(phone, lab) == {"new": 0, "updated": 1, "skipped": []}
     assert json.loads((lab / "s1" / "scan.json").read_text())["label"] == "confirmed"
+
+
+def test_scan_records_use_folder_name_and_skip_mismatched_ids(tmp_path):
+    write_scan(tmp_path, "ok", label="confirmed")
+    folder = write_scan(tmp_path, "renamed", label="confirmed")
+    data = json.loads((folder / "scan.json").read_text())
+    data["id"] = "other"
+    data["method"] = "ocr"
+    (folder / "scan.json").write_text(json.dumps(data))
+    records = dataset.scan_records(tmp_path)
+    assert [r["scanId"] for r in records] == ["ok"] and records[0]["method"] is None
+
+
+def test_scan_records_include_method(tmp_path):
+    folder = write_scan(tmp_path, "s1", label="confirmed")
+    data = json.loads((folder / "scan.json").read_text())
+    data["method"] = "ocr"
+    (folder / "scan.json").write_text(json.dumps(data))
+    assert dataset.scan_records(tmp_path)[0]["method"] == "ocr"
+
+
+def test_train_records_exclude_frozen_scans_relabeled_to_train(tmp_path):
+    scans, sets = tmp_path / "scans", tmp_path / "sets"
+    write_scan(scans, "frozen", final="OP05-119", label="corrected", corrected=True)  # now a train printing
+    write_scan(scans, "fresh", final="OP05-119", label="confirmed")
+    write_scan(scans, "held", final="OP01-003", label="confirmed")                    # test printing
+    sets.mkdir()
+    (sets / "test-v1.json").write_text(json.dumps({
+        "name": "test-v1", "version": 1, "frozen": "2026-10-01", "printings": ["OP01-003"],
+        "scans": [{"scanId": "frozen", "printingId": "OP01-003", "label": "confirmed", "method": None}]}))
+    assert [r["scanId"] for r in dataset.train_records(scans, sets)] == ["fresh"]

@@ -34,7 +34,7 @@ def test_scan_references_respect_split_label_scope_and_dedup(tmp_path, monkeypat
         record("corrected", "OP05-119", "corrected", "train"),
         record("elsewhere", "OP09-001", "corrected", "train"),
     ]
-    monkeypatch.setattr(dataset, "scan_records", lambda *a, **k: records)
+    monkeypatch.setattr(dataset, "train_records", lambda *a, **k: [r for r in records if r["split"] == "train"])
 
     def ids(with_scans, printing_ids, seen=None):
         return [e["path"].rsplit("/", 1)[1][:-4] for e in

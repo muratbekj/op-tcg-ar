@@ -58,6 +58,9 @@ def scan_records(scans_dir: Path = paths.SCANS, labeled_only: bool = True) -> li
             scan_id, printing_id = record["id"], record["finalPrintingID"]
         except (ValueError, KeyError, TypeError):
             continue
+        scan_id = str(scan_id)
+        if scan_id != record_path.parent.name:  # entries() resolves crops by folder name
+            continue
         label = scan_label(record)
         if labeled_only and label not in LABELED:
             continue
@@ -67,9 +70,18 @@ def scan_records(scans_dir: Path = paths.SCANS, labeled_only: bool = True) -> li
             "path": str(crop),
             "printingId": printing_id,
             "label": label,
+            "method": record.get("method"),
             "split": printing_split(printing_id),
         })
     return records
+
+
+def train_records(scans_dir: Path = paths.SCANS, testsets_dir: Path = paths.TESTSETS) -> list[dict]:
+    """Labeled train-split scans that no frozen test set holds, so a relabeled frozen scan never trains."""
+    from . import testsets  # here, not at module top: testsets imports dataset
+
+    frozen = testsets._frozen_ids(testsets.frozen_sets(testsets_dir))
+    return [r for r in scan_records(scans_dir) if r["split"] == "train" and r["scanId"] not in frozen]
 
 
 def import_scans(source: Path, scans_dir: Path = paths.SCANS) -> dict:
@@ -196,6 +208,13 @@ def build_test_manifest() -> list[dict]:
     return entries
 
 
+def index_printings() -> set[str] | None:
+    """Printing IDs in the recognition index, or None when its metadata file doesn't exist."""
+    if not paths.INDEX_META.exists():
+        return None
+    return set(io.read_json(paths.INDEX_META)["rows"])
+
+
 def main(argv: list[str] | None = None) -> None:
     from . import testsets  # here, not at module top: testsets imports dataset
 
@@ -219,7 +238,10 @@ def main(argv: list[str] | None = None) -> None:
         result = import_scans(args.source)
         print(f"imported {result['new']} new scans, refreshed {result['updated']} labels")
         if result["skipped"]:
-            print(f"  skipped {len(result['skipped'])} folders without crop.jpg: {', '.join(result['skipped'][:10])}")
+            print(f"  skipped {len(result['skipped'])} folders without crop.jpg or with an unreadable scan.json: "
+                  f"{', '.join(result['skipped'][:10])}")
+        if not any(args.source.glob("*/scan.json")):
+            print(f"  no <scanId>/scan.json found under {args.source}; the source should be the Scans folder itself")
     elif args.command == "synth":
         if args.scope == "roster":
             ids = [p["id"] for p in io.read_json(paths.DATA_CARDS / "printings.json")]
@@ -236,11 +258,17 @@ def main(argv: list[str] | None = None) -> None:
             by_source[entry["tags"]["source"]] = by_source.get(entry["tags"]["source"], 0) + 1
         print(f"test set: {len(entries)} images {by_source} -> {paths.TEST_MANIFEST}")
     elif args.command == "status":
-        for line in testsets.status_lines(scan_records(labeled_only=False), testsets.frozen_sets()):
+        indexed = index_printings()
+        for line in testsets.status_lines(scan_records(labeled_only=False), testsets.frozen_sets(), indexed=indexed):
             print(line)
+        if indexed is None:
+            print("index missing: can't tell which scans are freezable (build it: generate_embeddings.py)")
     elif args.command == "freeze-test":
+        indexed = index_printings()
+        if indexed is None:
+            raise SystemExit("not frozen: build the full-catalog index first: generate_embeddings.py")
         try:
-            frozen = testsets.freeze(scan_records())
+            frozen = testsets.freeze(scan_records(), indexed=indexed)
         except testsets.FreezeError as error:
             raise SystemExit(f"not frozen: {error}")
         print(f"froze {frozen['name']}: {len(frozen['scans'])} scans across {len(frozen['printings'])} printings "
