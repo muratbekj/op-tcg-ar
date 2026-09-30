@@ -20,7 +20,7 @@ public enum ScanLabel: String, Codable, Sendable {
 public struct ScanRecord: Codable, Sendable, Equatable {
     public struct Candidate: Codable, Sendable, Equatable {
         public let printingID: String
-        /// `nil` when the printing had no embedding score (single-printing code, or no reference row).
+        /// `nil` when the printing had no embedding score (the printing has no reference row).
         public let similarity: Float?
         public let matchesOCR: Bool
 

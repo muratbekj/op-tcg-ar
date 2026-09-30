@@ -35,10 +35,11 @@ struct GroupSheet: View {
                     }
                 }
                 Section {
-                    Button("None of these, pick manually") {
-                        model.correctingScan = true
-                        dismiss()
-                        model.showingPicker = true
+                    NavigationLink("None of these, search the catalog") {
+                        CatalogSearchView(initialQuery: model.lastScan?.result.ocrCardID ?? "") { printingID in
+                            dismiss()
+                            Task { await model.choose(printingID) }
+                        }
                     }
                 }
             }
@@ -76,7 +77,7 @@ private struct GroupRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if model.isInRoster(candidate.printingID) {
-                        Text("Spawns a character").font(.caption2).foregroundStyle(.tint)
+                        Text("Has a 3D character").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 Spacer()

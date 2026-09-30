@@ -63,8 +63,6 @@ final class AppModel {
 
     var showingPicker = false
     var showingGroup = false
-    /// Set when "None of these" opens the picker, so the pick is recorded as the scan's correction.
-    var correctingScan = false
     var showingSettings = false
 
     let settings = AppSettings()
@@ -80,6 +78,8 @@ final class AppModel {
     @ObservationIgnored private var controllers: [Int: CharacterController] = [:]
     @ObservationIgnored private var selectionGeneration: [Int: Int] = [:]
     @ObservationIgnored private var recognitionBusy = false
+    /// Bumped when a scan starts or everything is cleared, so a result still being logged is dropped.
+    @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored private var lastRecognitionAttempt = Date.distantPast
     @ObservationIgnored private var bootstrapped = false
 
@@ -155,6 +155,7 @@ final class AppModel {
 
     /// Removes every character and anchor, e.g. to start a new battle.
     func clearAll() {
+        scanGeneration += 1
         stopScan()
         for slot in Array(slots.keys) { clear(slot: slot) }
         battle.reset()
@@ -327,7 +328,7 @@ final class AppModel {
             showingPicker = true
             return
         }
-        identified = nil
+        scanGeneration += 1
         scanState = .searching
         session.onFrame = { [weak self] frame in self?.consider(frame) }
     }
@@ -352,7 +353,9 @@ final class AppModel {
             guard let result = attempt?.result, let best = result.best else { return }
             stopScan()
             let slot = targetSlot
+            let generation = scanGeneration
             let scanID = settings.logScans ? try? await scanLog.log(result, spawnedPrintingID: best.printingID) : nil
+            guard generation == scanGeneration else { return }
             lastScan = ScanOutcome(slot: slot, result: result, scanID: scanID, pickID: best.printingID, label: .unlabeled)
             await show(best.printingID, slot: slot, crop: result.crop, scanID: scanID)
         }

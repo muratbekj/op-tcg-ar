@@ -41,7 +41,7 @@ public struct RecognitionCandidate: Hashable, Identifiable, Sendable {
 public enum RecognitionDefaults {
     /// Reject a vision-only frame whose best match is below this (Vision feature print). From the
     /// 2026-09-25 eval: 2% of non-roster cards accepted, 62% of roster frames kept. A rejected frame
-    /// just means scanning continues. It never applies when OCR found a catalog code.
+    /// just means scanning continues. It does not gate a read catalog code, but it also bounds the art-guard overrule (`codeArtMargin`).
     public static let minimumSimilarity: Float = 0.80
     /// A read catalog code is overruled when some printing outside its group matches the art at
     /// least this much better than the group's best (and passes `minimumSimilarity`): the OCR most

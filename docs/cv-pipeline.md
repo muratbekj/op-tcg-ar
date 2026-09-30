@@ -23,19 +23,19 @@ Everything here is unit-tested on the Mac, including real Vision detection on sy
    - The art must not contradict the code: the crop is embedded, and if a printing outside the group matches it at least `codeArtMargin` (0.08) better than the group's best (and above `minimumSimilarity`), the code is treated as a misread and the frame goes to the vision-only search, keeping the raw read.
    - No code: embed both orientations, search the whole index, and keep the better orientation's
      top 5 (`vision-only`). Below the index's `minimumSimilarity` (default 0.80), the frame is
-     rejected and scanning continues. The threshold never applies when a catalog code was read.
+     rejected and scanning continues. The threshold does not gate a read catalog code, but it also bounds the art-guard overrule (above).
 6. **Spawn or show.** A roster printing spawns its character right away; any other printing shows a
    card-info panel (name, code, set, kind, rarity). Either way a strip reads "OP05-119 · 4 printings"
    (or "Matched by art · 5 candidates") with the pick; ✓ confirms it, and tapping the strip opens the
-   group list, where any row can be chosen instead ("None of these" opens the manual picker).
+   group list, where any row can be chosen instead ("None of these" opens a search over the whole catalog; the pick is recorded as the correction).
    Thumbnails there load on demand from the printing's art URL and are cached; offline, rows are text only.
 7. **Track.** An `ARReferenceImage` (0.063 m wide) is built from the bundled art, or from the
    scanned crop if there's no art. Poses are low-pass filtered in `CardAnchor` (Settings >
    Anchor smoothing).
 
 Frames are sampled every 0.35 s, and only while scanning. Settings > Show recognition debug draws the
-detected card outline live while scanning (yellow: found, no match; green: recognized) and lists the
-OCR read, method, and top similarities.
+detected card outline while searching (yellow) and lists the OCR read, method, and top
+similarities; the debug text keeps the last result after a scan succeeds, but the outline hides.
 
 ## Embedding contract (`printings.f32` + `printings.meta.json`)
 
@@ -66,7 +66,7 @@ Comparability: the 2026-09-25 numbers are roster-only (14 printings indexed, 196
 The code-first run indexes the full catalog (~4.2k printings) and adds 150 catalog-card images, so its
 top-1 isn't directly comparable to this baseline.
 
-OCR hardening, same 346 images: Phase 1 baseline 42.9% OCR accuracy / 74.6% top-1; the tolerant parser
+OCR hardening, same 346 images: Phase 1 baseline 42.9% OCR accuracy / 74.6% top-1 (run `ml/runs/20260929-223149-code-first-featureprint`); the tolerant parser
 alone 35.1% / 74.0% (`results.csv` row `code-first-featureprint`); plus crop + 3× upscale 50.3% / 74.0%
 (row `ocr-hardened`). Top-1 is flat because wrong-but-real catalog codes cancel the gains (an art-check guard follows).
 

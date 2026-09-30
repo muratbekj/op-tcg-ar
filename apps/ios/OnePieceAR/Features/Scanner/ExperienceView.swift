@@ -38,18 +38,10 @@ struct ExperienceView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
         }
-        .sheet(isPresented: $model.showingPicker, onDismiss: { model.correctingScan = false }) {
+        .sheet(isPresented: $model.showingPicker) {
             CollectionView { printing in
-                let correcting = model.correctingScan
-                model.correctingScan = false
                 model.showingPicker = false
-                Task {
-                    if correcting {
-                        await model.choose(printing.id)
-                    } else {
-                        await model.select(printing)
-                    }
-                }
+                Task { await model.select(printing) }
             }
         }
         .sheet(isPresented: $model.showingGroup) {
