@@ -109,9 +109,17 @@ final class AppModel {
         let art = catalog.printings.compactMap { printing in
             assets.cardArt(for: printing).map { (printingID: printing.id, image: $0) }
         }
+        let fullCatalog: FullCatalog
+        if let url = Bundle.main.url(forResource: "catalog", withExtension: "json"), let loaded = try? FullCatalog.load(from: url) {
+            fullCatalog = loaded
+        } else {
+            print("AppModel: no catalog.json bundled; recognizing roster printings only")
+            fullCatalog = FullCatalog(roster: catalog)
+        }
         let bundle = Bundle.main
         if await recognition.prepare(
             catalog: catalog,
+            fullCatalog: fullCatalog,
             bundledIndex: bundle.url(forResource: "printings", withExtension: "f32"),
             bundledMetadata: bundle.url(forResource: "printings.meta", withExtension: "json"),
             bundledModel: bundle.url(forResource: RecognitionService.modelName, withExtension: "mlmodelc"),

@@ -223,9 +223,9 @@ private struct RecognitionDebugView: View {
                 .aspectRatio(CardGeometry.aspectRatio, contentMode: .fit)
                 .frame(width: 60)
             VStack(alignment: .leading, spacing: 2) {
-                Text("OCR: \(result.ocrCardID ?? "–")")
+                Text("OCR: \(result.ocrCardID ?? "–")  \(result.method.rawValue)  n=\(result.groupSize)")
                 ForEach(result.candidates.prefix(3)) { candidate in
-                    Text("\(candidate.printingID)  \(candidate.similarity, format: .number.precision(.fractionLength(3)))")
+                    Text("\(candidate.printingID)  \(candidate.similarity.map { String(format: "%.3f", $0) } ?? "–")")
                 }
             }
             .font(.caption.monospaced())

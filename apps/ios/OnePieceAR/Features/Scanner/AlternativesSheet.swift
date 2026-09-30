@@ -61,12 +61,14 @@ struct AlternativesSheet: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if candidate.matchesOCR {
+                if candidate.cardID == model.lastRecognition?.result.ocrCardID {
                     Image(systemName: "number").foregroundStyle(.blue).accessibilityLabel("Card number matches")
                 }
-                Text(candidate.similarity, format: .percent.precision(.fractionLength(0)))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                if let similarity = candidate.similarity {
+                    Text(similarity, format: .percent.precision(.fractionLength(0)))
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
                 if isCurrent {
                     Image(systemName: "checkmark").foregroundStyle(.tint)
                 }

@@ -6,9 +6,9 @@ PACKAGE := apps/ios/Packages/OnePieceKit
 
 .PHONY: test build open ml-setup ml-test eval
 
-## Unit tests for models, catalog, recognition math, and battle rules (no device needed).
+## Unit tests for models, catalog, recognition math, and battle rules (no device needed). Serial: Vision tests deadlock in parallel.
 test:
-	swift test --package-path $(PACKAGE)
+	swift test --no-parallel --package-path $(PACKAGE)
 
 ## Compile the app for a generic iPhone without signing (CI-style sanity check).
 build:

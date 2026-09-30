@@ -148,7 +148,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Copies data/cards (JSON + optional printings.f32) from the repo root into the app bundle.\nset -e\nDATA=\"${SRCROOT}/../../data/cards\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"$DEST\"\nfor f in cards.json printings.json variants.json; do\n  cp \"$DATA/$f\" \"$DEST/$f\"\ndone\nfor f in printings.f32 printings.meta.json; do\n  if [ -f \"$DATA/$f\" ]; then cp \"$DATA/$f\" \"$DEST/$f\"; else rm -f \"$DEST/$f\"; fi\ndone\n";
+			shellScript = "# Copies data/cards (JSON + optional printings.f32 and catalog.json) from the repo root into the app bundle.\nset -e\nDATA=\"${SRCROOT}/../../data/cards\"\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nmkdir -p \"$DEST\"\nfor f in cards.json printings.json variants.json; do\n  cp \"$DATA/$f\" \"$DEST/$f\"\ndone\nfor f in printings.f32 printings.meta.json catalog.json; do\n  if [ -f \"$DATA/$f\" ]; then cp \"$DATA/$f\" \"$DEST/$f\"; else rm -f \"$DEST/$f\"; fi\ndone\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
