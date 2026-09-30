@@ -106,3 +106,25 @@ def test_rejection_curve_only_thresholds_vision_only():
     ]
     curve = metrics.rejection_curve(rows, negatives, thresholds=(0.7,))
     assert curve == [{"threshold": 0.7, "correct_kept": round(2 / 3, 4), "false_accept": round(1 / 3, 4)}]
+
+
+def test_wilson_interval():
+    assert metrics.wilson(76, 100) == (0.6677, 0.8331)
+    assert metrics.wilson(10, 10) == (0.7225, 1.0)
+    assert metrics.wilson(0, 10) == (0.0, 0.2775)
+    assert metrics.wilson(0, 0) == (None, None)
+
+
+def test_rate_ci_ignores_none():
+    assert metrics.rate_ci([True, False, None, True]) == (round(2 / 3, 4), list(metrics.wilson(2, 3)))
+    assert metrics.rate_ci([None]) == (None, [None, None])
+
+
+def test_summary_carries_intervals():
+    predictions = [prediction("q1", "A", ocr="A", method="ocr-unique", group_size=1),
+                   prediction("q2", "B", method="vision-only")]
+    s = metrics.summarize(predictions, {**truth("q1", "A"), **truth("q2", "A_p1")}, lambda p: ATTRS[p])["summary"]
+    assert s["top1"] == 0.5 and s["top1_ci"] == list(metrics.wilson(1, 2))
+    assert s["detection_ci"] == list(metrics.wilson(2, 2))
+    assert s["ocr_accuracy_ci"] == list(metrics.wilson(1, 2))
+    assert s["within_group_ci"] == [None, None]

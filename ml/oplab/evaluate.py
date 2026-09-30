@@ -15,7 +15,9 @@ from . import cardvision, dataset, io, metrics, paths
 
 RESULT_COLUMNS = ["timestamp", "name", "backend", "index", "index_printings", "sources", "ocr", "n", "skipped",
                   "detection", "top1", "top3", "top1_given_detected", "card_top1", "variant_top1",
-                  "ocr_used", "median_ms", "negatives", "suggested_threshold", "ocr_accuracy", "within_group"]
+                  "ocr_used", "median_ms", "negatives", "suggested_threshold", "ocr_accuracy", "within_group",
+                  "testset", "top1_low", "top1_high", "ocr_accuracy_low", "ocr_accuracy_high",
+                  "within_group_low", "within_group_high"]
 
 
 def printing_attributes() -> dict[str, dict]:
@@ -39,21 +41,27 @@ def variant_lookup() -> dict[str, str]:
 def render_report(name: str, meta: dict, result: dict, skipped: int) -> str:
     s = result["summary"]
     pct = lambda v: "–" if v is None else f"{v * 100:.1f}%"
+    def with_ci(value, ci):
+        if value is None or ci is None or ci[0] is None:
+            return pct(value)
+        return f"{pct(value)} ({ci[0] * 100:.1f}–{ci[1] * 100:.1f}%)"
+
     lines = [
         f"# Recognition eval: {name}", "",
         f"Backend `{meta['backend']}`, {len(set(meta['rows']))} printings in index ({len(meta['rows'])} rows). "
         f"{s['n']} test images; {skipped} skipped because their printing isn't in the index.", "",
         "| Metric | Value |", "| --- | --- |",
-        f"| Detection | {pct(s['detection'])} |",
-        f"| Top-1 printing | {pct(s['top1'])} |",
+        f"| Detection | {with_ci(s['detection'], s.get('detection_ci'))} |",
+        f"| Top-1 printing | {with_ci(s['top1'], s.get('top1_ci'))} |",
         f"| Top-3 printing | {pct(s['top3'])} |",
         f"| Top-1 given detected | {pct(s['top1_given_detected'])} |",
         f"| Top-1 card number | {pct(s['card_top1'])} |",
         f"| Top-1 variant (what spawns) | {pct(s['variant_top1'])} |",
         f"| OCR read a catalog code | {pct(s['ocr_used'])} |",
-        f"| OCR accuracy | {pct(s['ocr_accuracy'])} |",
-        f"| Within-group top-1 (right code, ≥2 printings) | {pct(s['within_group'])} |",
+        f"| OCR accuracy | {with_ci(s['ocr_accuracy'], s.get('ocr_accuracy_ci'))} |",
+        f"| Within-group top-1 (right code, ≥2 printings) | {with_ci(s['within_group'], s.get('within_group_ci'))} |",
         f"| Median latency (Mac) | {s['median_ms']} ms |", "",
+        "95% Wilson confidence intervals in parentheses.", "",
     ]
     for key, values in result["groups"].items():
         has_precision = any("precision" in v for v in values.values())
@@ -157,7 +165,10 @@ def main(argv: list[str] | None = None) -> None:
         args.index, [{"id": e["id"], "path": e["path"]} for e in negatives], "photo", ocr=not args.no_ocr, model=args.model,
         catalog=catalog)
     curve = metrics.rejection_curve(result["rows"], negative_predictions)
-    result["rejection"] = {"negatives": len(negative_predictions), "curve": curve,
+    result["rejection"] = {"top1_low": result["summary"]["top1_ci"][0], "top1_high": result["summary"]["top1_ci"][1],
+        "ocr_accuracy_low": result["summary"]["ocr_accuracy_ci"][0], "ocr_accuracy_high": result["summary"]["ocr_accuracy_ci"][1],
+        "within_group_low": result["summary"]["within_group_ci"][0], "within_group_high": result["summary"]["within_group_ci"][1],
+        "negatives": len(negative_predictions), "curve": curve,
                            "suggested_threshold": metrics.suggest_threshold(curve)}
     predictions += negative_predictions
 
