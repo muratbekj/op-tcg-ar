@@ -4,7 +4,7 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 PROJECT := apps/ios/OnePieceAR.xcodeproj
 PACKAGE := apps/ios/Packages/OnePieceKit
 
-.PHONY: test build open ml-setup ml-test eval status freeze-test ship-baseline pull-model import-scans
+.PHONY: test build open ml-setup ml-test eval status freeze-test ship-baseline pull-model import-scans mini-doctor ml-setup-train
 
 ## Unit tests for models, catalog, recognition math, and battle rules (no device needed). Serial: Vision tests deadlock in parallel.
 test:
@@ -48,3 +48,11 @@ ship-baseline:
 ## MacBook: fetch ml/shipped/ from the Mac mini (ml/remote.env) and install it for the next app build.
 pull-model:
 	cd ml && uv run scripts/remote.py pull-model
+
+## Python lab with training extras (torch, coremltools): Mac mini.
+ml-setup-train:
+	cd ml && uv sync --extra train
+
+## Mac mini: check the one-time two-Mac setup (Xcode, uv, SMB inbox, Remote Login, index).
+mini-doctor:
+	cd ml && uv run scripts/remote.py doctor

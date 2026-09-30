@@ -43,10 +43,17 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Two-Mac commands (see ml/README.md, 'Two Macs').")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("pull-model", help="MacBook: fetch ml/shipped/ from the mini and install it for the app build")
+    sub.add_parser("doctor", help="Mac mini: check the one-time setup")
     args = parser.parse_args(argv)
 
     try:
         if args.command == "pull-model":
             pull.main()
+        elif args.command == "doctor":
+            from . import doctor
+
+            text, code = doctor.render(doctor.checks(doctor.SystemProbe()))
+            print(text)
+            raise SystemExit(code)
     except (RemoteConfigError, pull.PullError) as error:
         raise SystemExit(str(error))
