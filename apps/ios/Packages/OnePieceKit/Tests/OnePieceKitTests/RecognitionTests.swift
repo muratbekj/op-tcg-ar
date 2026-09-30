@@ -61,6 +61,14 @@ import Testing
             try PrintingEmbeddings.load(from: url, metadata: wrong)
         }
     }
+
+    @Test func restrictedSearchOnlyReturnsAllowedPrintings() throws {
+        let index = try EmbeddingIndex(rows: [[1, 0, 0], [0.9, 0.1, 0], [0, 1, 0], [0.8, 0.2, 0]])
+        let embeddings = PrintingEmbeddings(index: index, printingIDs: ["A", "B", "C", "B"])
+        let hits = embeddings.matches(for: [1, 0, 0], k: 10, restrictedTo: ["B", "C", "Z"])
+        #expect(hits.map(\.printingID) == ["B", "C"])   // B once, at its best row; Z has no rows
+        #expect(embeddings.matches(for: [1, 0, 0], k: 1).map(\.printingID) == ["A"])
+    }
 }
 
 @Suite struct CardNumberParserTests {
