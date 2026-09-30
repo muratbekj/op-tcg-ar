@@ -5,8 +5,9 @@
 | `roster.json` | **you** | card in the app: its character, default variant, per-printing variant overrides |
 | `variants.json` | **you** | character form (`luffy_gear5`): model file, height, animations |
 | `cards.json` | `fetch_cards.py` | card number (`OP05-119`), TCG stats from the OPTCG API |
+| `catalog.json` | `fetch_cards.py` | printing in the whole OPTCG catalog (code, name, set, kind, rarity, art URL): what recognition can identify |
 | `printings.json` | `fetch_cards.py` | physical print (`OP05-119_p1`), matching the API's image IDs |
-| `printings.f32` + `printings.meta.json` | `generate_embeddings.py` (gitignored) | reference embedding rows |
+| `printings.f32` + `printings.meta.json` | `generate_embeddings.py` (gitignored) | reference embedding row (full catalog by default) |
 
 To change the roster, edit `roster.json` and run `uv run ml/scripts/fetch_cards.py`, then regenerate
 embeddings. The app bundles everything here at build time. `swift test` validates the JSON

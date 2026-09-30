@@ -34,11 +34,12 @@ Each step says what to look at afterwards.
 **1. Card data and art**
 
 ```sh
-uv run scripts/fetch_cards.py            # roster cards + art -> data/cards/, full catalog -> datasets/processed/
+uv run scripts/fetch_cards.py            # roster cards + art -> data/cards/, full catalog -> data/cards/catalog.json
 ```
 Look at `data/cards/cards.json` and `printings.json`, which are generated from `data/cards/roster.json`,
 and at the art in `data/cards/art/`. Notice the SAMPLE watermark on every API image. It matters (see
-"What the numbers mean"). Add `--install-art` to copy the roster art into the app for image tracking.
+"What the numbers mean"). `fetch_cards.py` also writes `data/cards/catalog.json` (every printing, tracked in git). The
+full-catalog index needs `--art all` (~1.4 GB, best done on the Mac mini). Add `--install-art` to copy the roster art into the app for image tracking.
 
 **2. A test set**
 
@@ -55,7 +56,8 @@ glare, dim, blur, upside_down, or small. That's how per-condition accuracy is co
 ```sh
 uv run scripts/generate_embeddings.py --min-similarity 0.8
 ```
-This writes `data/cards/printings.f32` (one 768-float row per reference image) and
+This now embeds the whole catalog (about 4.2k rows, a few minutes). `--scope roster` is the old
+roster-only index. It writes `data/cards/printings.f32` (one 768-float row per reference image) and
 `printings.meta.json` (the backend, one printing ID per row, and the device's rejection threshold).
 The next Xcode build bundles both.
 
@@ -66,9 +68,13 @@ uv run scripts/evaluate.py --name my-first-run
 ```
 Read `runs/<timestamp>-my-first-run/report.md`:
 - **Detection:** did the rectangle detector find the card at all?
+- **OCR accuracy:** did OCR read the right code (no read counts as wrong)?
+- **Within-group top-1:** given the right code with ≥2 printings, did the embedder pick the right one? This is the number fine-tuning should move.
+- **By method:** accuracy for `ocr-unique`, `ocr+vision`, `vision-only`.
 - **Top-1 / top-3 printing:** the exact printing (base vs alt art vs manga).
 - **Top-1 variant:** the one that matters for the product, meaning which character spawns.
 - **By condition / kind / set:** where it breaks. Precision appears for printing attributes.
+- Negatives whose printing is in the index are scored as positives ("catalog" source), so the rejection section appears only for a roster-scope index.
 - **Rejecting unknown cards:** for each threshold, how many correct matches survive and how many
   non-roster cards get wrongly accepted. The suggested value is what `--min-similarity` should be.
 - **Hardest misses:** the most confident wrong answers, which are your hard negatives.
@@ -125,7 +131,7 @@ with a different model (the backend ID includes the model version).
 | --- | --- |
 | `fetch_cards.py` | OPTCG API -> roster JSON, art, full catalog |
 | `prepare_dataset.py` | `synth`, `negatives`, `import-scans`, `build-test` |
-| `generate_embeddings.py` | reference index via `cardvision embed` (roster or `--scope full`) |
+| `generate_embeddings.py` | reference index via `cardvision embed` (full catalog by default, `--scope roster` for roster only) |
 | `evaluate.py` | metrics via `cardvision match`, report, results history |
 | `train_embedding.py` | fine-tune an embedder on augmented card art |
 | `export_coreml.py` | checkpoint -> Core ML `CardEmbedder.mlpackage` |
