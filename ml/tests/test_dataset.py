@@ -78,3 +78,25 @@ def test_import_skips_malformed_folders(tmp_path):
     assert result == {"new": 1, "updated": 0, "skipped": ["nocrop"]}
     assert (phone / "nocrop" / "scan.json").exists()                  # left in place
     assert not (lab / "nocrop").exists()
+
+
+def test_import_skips_malformed_scan_json_without_touching_lab_copy(tmp_path):
+    phone, lab = tmp_path / "phone", tmp_path / "lab"
+    write_scan(phone, "s1", label="confirmed")
+    dataset.import_scans(phone, lab)
+    good = (lab / "s1" / "scan.json").read_bytes()
+    (phone / "s1" / "scan.json").write_text("{not json")
+    write_scan(phone, "fresh", label="confirmed")
+    (phone / "fresh" / "scan.json").write_text(json.dumps({"id": "fresh"}))   # no finalPrintingID
+    assert dataset.import_scans(phone, lab) == {"new": 0, "updated": 0, "skipped": ["fresh", "s1"]}
+    assert (lab / "s1" / "scan.json").read_bytes() == good
+    assert not (lab / "fresh").exists()
+
+
+def test_import_restores_missing_lab_scan_json(tmp_path):
+    phone, lab = tmp_path / "phone", tmp_path / "lab"
+    write_scan(phone, "s1", label="confirmed")
+    dataset.import_scans(phone, lab)
+    (lab / "s1" / "scan.json").unlink()
+    assert dataset.import_scans(phone, lab) == {"new": 0, "updated": 1, "skipped": []}
+    assert json.loads((lab / "s1" / "scan.json").read_text())["label"] == "confirmed"

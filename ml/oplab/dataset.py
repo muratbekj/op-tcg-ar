@@ -75,10 +75,18 @@ def scan_records(scans_dir: Path = paths.SCANS, labeled_only: bool = True) -> li
 def import_scans(source: Path, scans_dir: Path = paths.SCANS) -> dict:
     """Copies new scan folders from an exported Scans folder and refreshes scan.json of already
     imported ones (a scan can be confirmed or corrected on the phone after an earlier export).
-    Folders without crop.jpg are skipped, reported, and left where they are."""
+    Crops never change on the device (only scan.json is rewritten when a scan is relabeled), so only
+    scan.json is compared. Folders without crop.jpg or with an unreadable or incomplete scan.json are
+    skipped, reported, and left where they are; an existing imported copy is never overwritten by one."""
     new, updated, skipped = 0, 0, []
     for record in sorted(source.glob("*/scan.json")):
         folder = record.parent
+        try:
+            data = io.read_json(record)
+            data["id"], data["finalPrintingID"]
+        except (ValueError, KeyError, TypeError):
+            skipped.append(folder.name)
+            continue
         if not (folder / "crop.jpg").exists():
             skipped.append(folder.name)
             continue
@@ -87,7 +95,7 @@ def import_scans(source: Path, scans_dir: Path = paths.SCANS) -> dict:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(folder, target)
             new += 1
-        elif record.read_bytes() != (target / "scan.json").read_bytes():
+        elif not (target / "scan.json").exists() or record.read_bytes() != (target / "scan.json").read_bytes():
             shutil.copy2(record, target / "scan.json")
             updated += 1
     return {"new": new, "updated": updated, "skipped": skipped}
