@@ -130,8 +130,9 @@ carries `ml/shipped/` (mlpackage, index, `catalog.json`).
 
 ### Mac mini one-time setup (checked by `make mini-doctor`)
 
-1. Xcode, the same version as the MacBook. Both Macs on the same macOS major version (Vision output
-   can differ across OS versions, and model cards record the versions).
+1. A Swift 6 toolchain on macOS 15+: the Command Line Tools are enough (Xcode is optional on the
+   mini). Vision output can differ across OS versions, so an index built on the mini is compared
+   once with the MacBook's (`compare_index.py`), and model cards record the versions.
 2. `uv`, then `make ml-setup` with the `train` extra.
 3. File Sharing on, sharing `~/oplab-inbox`.
 4. Remote Login on, with the MacBook's SSH key authorized.

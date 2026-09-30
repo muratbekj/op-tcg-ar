@@ -15,7 +15,8 @@ XCODE = "/Applications/Xcode.app/Contents/Developer"
 
 def _env() -> dict:
     env = dict(os.environ)
-    # The CLI needs the full Xcode toolchain even when xcode-select points at the Command Line Tools.
+    # Prefer the full Xcode toolchain when installed (even if xcode-select points at the Command Line
+    # Tools); without Xcode the Command Line Tools build the CLI fine (e.g. on the Mac mini).
     if "DEVELOPER_DIR" not in env and Path(XCODE).exists():
         env["DEVELOPER_DIR"] = XCODE
     return env
