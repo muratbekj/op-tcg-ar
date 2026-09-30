@@ -29,6 +29,8 @@ public struct CardRecognizer {
     public var candidateCount = 5
     /// Vision-only best matches below this return `nil` (probably not a card). 0 disables.
     public var minimumSimilarity: Float = RecognitionDefaults.minimumSimilarity
+    /// See `RecognitionDefaults.codeArtMargin`.
+    public var codeArtMargin: Float = RecognitionDefaults.codeArtMargin
 
     private let detector: CardDetector
     private let ocr: CardOCR
@@ -60,15 +62,12 @@ public struct CardRecognizer {
 
         if let read, read.inCatalog {
             let group = matcher.catalog.printings(forCode: read.code)
-            if group.count == 1 {
+            let embedding = try engine.embedding(for: read.crop)
+            let ranked = matcher.rankGroup(group, embedding: embedding)
+            if codeMatchesArt(ranked, embedding: embedding) {
                 return RecognitionResult(
-                    crop: read.crop, candidates: RecognitionCandidate.rankGroup(group, matches: []),
-                    ocrCardID: read.code, flipped: read.flipped, method: .ocrUnique, groupSize: 1)
-            }
-            if group.count > 1 {
-                return RecognitionResult(
-                    crop: read.crop, candidates: matcher.rankGroup(group, embedding: try engine.embedding(for: read.crop)),
-                    ocrCardID: read.code, flipped: read.flipped, method: .ocrVision, groupSize: group.count)
+                    crop: read.crop, candidates: ranked, ocrCardID: read.code, flipped: read.flipped,
+                    method: group.count == 1 ? .ocrUnique : .ocrVision, groupSize: group.count)
             }
         }
 
@@ -84,6 +83,14 @@ public struct CardRecognizer {
         return RecognitionResult(
             crop: best.crop, candidates: matcher.candidates(for: best.matches),
             ocrCardID: read?.code, flipped: best.flipped, method: .visionOnly, groupSize: 0)
+    }
+
+    /// Trust the read code unless the art clearly belongs to a printing outside its group. A group
+    /// with no indexed member can't be checked, so its code is trusted.
+    private func codeMatchesArt(_ ranked: [RecognitionCandidate], embedding: [Float]) -> Bool {
+        guard let groupBest = ranked.compactMap(\.similarity).max(),
+              let overall = matcher.artMatches(for: embedding, k: 1).first else { return true }
+        return overall.similarity < max(minimumSimilarity, groupBest + codeArtMargin)
     }
 
     /// The card code from the upright crop, else from the 180°-rotated one. Only a code in the

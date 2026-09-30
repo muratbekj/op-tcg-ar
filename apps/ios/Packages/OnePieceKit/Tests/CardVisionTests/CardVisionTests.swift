@@ -146,6 +146,7 @@ struct SeededGenerator: RandomNumberGenerator {
                                      embeddings: try PrintingEmbeddings.build(from: rows), source: .bundledIndex)
         var recognizer = CardRecognizer(engine: engine, matcher: matcher, context: context)
         recognizer.minimumSimilarity = 0
+        recognizer.codeArtMargin = 0.05   // synthetic art gaps are small (about 0.078); independent of the tuned default
         return recognizer
     }
 
@@ -154,12 +155,26 @@ struct SeededGenerator: RandomNumberGenerator {
         #expect(try CardOCR().cardID(in: card) == "OP05-119")
     }
 
-    @Test func uniqueCodeSkipsVision() throws {
+    @Test func uniqueCodeIsCheckedAgainstArt() throws {
         let recognizer = try makeRecognizer([("OP05-119", 21), ("OP06-118", 22)])
         let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 21, code: "OP05-119", size: size))))
         #expect(result.method == .ocrUnique && result.groupSize == 1)
-        #expect(result.candidates.map(\.printingID) == ["OP05-119"] && result.best?.similarity == nil)
+        #expect(result.candidates.map(\.printingID) == ["OP05-119"] && result.best?.similarity != nil)
         #expect(result.ocrCardID == "OP05-119")
+    }
+
+    @Test func wrongCatalogCodeFallsBackToArt() throws {
+        // OCR reads a real catalog code, but the art is clearly another printing's.
+        let recognizer = try makeRecognizer([("OP05-119", 100), ("OP06-118", 101)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 101, code: "OP05-119", size: size))))
+        #expect(result.method == .visionOnly && result.best?.printingID == "OP06-118")
+        #expect(result.ocrCardID == "OP05-119")   // the raw read is kept for misread analysis
+    }
+
+    @Test func wrongCodeInAMultiPrintingGroupFallsBackToArt() throws {
+        let recognizer = try makeRecognizer([("OP05-119", 110), ("OP05-119_p1", 111), ("OP06-118", 150)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 150, code: "OP05-119", size: size))))
+        #expect(result.method == .visionOnly && result.best?.printingID == "OP06-118")
     }
 
     @Test func sharedCodeRanksOnlyTheGroup() throws {

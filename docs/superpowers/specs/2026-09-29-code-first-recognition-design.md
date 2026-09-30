@@ -37,6 +37,7 @@ measuring exactly what the phone runs.
    - Group of ≥2: embed the crop and rank only the group's index rows (`EmbeddingIndex` restricted
      search). All group members are returned, ranked. `method = ocr+vision`.
    - An OCR code that isn't in the catalog is treated as an OCR failure.
+   **Amendment (2026-09-29):** a read catalog code is checked against the art (one embedding, also for single-printing codes); a clear art mismatch sends the frame to the vision-only path. See docs/cv-pipeline.md.
 5. **Fallback.** No code in either orientation: embed both orientations, search the full catalog index,
    return the top 5 for the better orientation. `method = vision-only`. If the best similarity is below
    `minimumSimilarity`, return `nil` ("not a card") and keep scanning.

@@ -17,9 +17,10 @@ Everything here is unit-tested on the Mac, including real Vision detection on sy
 4. **Look up the group.** `FullCatalog` (`catalog.json`, every printing in the OPTCG API) lists the
    printings that share the code. A code that isn't in the catalog counts as no code.
 5. **Pick the printing.**
-   - One printing: that's the answer, with no embedding (`ocr-unique`).
+   - One printing: that's the answer, with no ranking (`ocr-unique`).
    - Several: embed the crop (`VNGenerateImageFeaturePrintRequest` revision 2, or the Core ML
      embedder) and rank only the group's index rows. Every member is returned (`ocr+vision`).
+   - The art must not contradict the code: the crop is embedded, and if a printing outside the group matches it at least `codeArtMargin` (0.08) better than the group's best (and above `minimumSimilarity`), the code is treated as a misread and the frame goes to the vision-only search, keeping the raw read.
    - No code: embed both orientations, search the whole index, and keep the better orientation's
      top 5 (`vision-only`). Below the index's `minimumSimilarity` (default 0.80), the frame is
      rejected and scanning continues. The threshold never applies when a catalog code was read.
@@ -63,6 +64,9 @@ top-1 isn't directly comparable to this baseline.
 OCR hardening, same 346 images: Phase 1 baseline 42.9% OCR accuracy / 74.6% top-1; the tolerant parser
 alone 35.1% / 74.0% (`results.csv` row `code-first-featureprint`); plus crop + 3× upscale 50.3% / 74.0%
 (row `ocr-hardened`). Top-1 is flat because wrong-but-real catalog codes cancel the gains (an art-check guard follows).
+
+Art-check guard (`codeArtMargin` 0.08, row `art-guard-0.08`), same 346 images: 76.3% top-1 (from 74.0%), 50.3% OCR
+accuracy, 88.6% within-group. Margins 0.05 and 0.08 tie on top-1; 0.12 gives 76.0%. The larger tied margin is kept.
 
 The code-first results are in `ml/results/results.csv`, with the `ocr_accuracy` and `within_group` columns.
 

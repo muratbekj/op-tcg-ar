@@ -43,4 +43,8 @@ public enum RecognitionDefaults {
     /// 2026-09-25 eval: 2% of non-roster cards accepted, 62% of roster frames kept. A rejected frame
     /// just means scanning continues. It never applies when OCR found a catalog code.
     public static let minimumSimilarity: Float = 0.80
+    /// A read catalog code is overruled when some printing outside its group matches the art at
+    /// least this much better than the group's best (and passes `minimumSimilarity`): the OCR most
+    /// likely misread a digit into another real code. Tuned with evaluate.py.
+    public static let codeArtMargin: Float = 0.08
 }
