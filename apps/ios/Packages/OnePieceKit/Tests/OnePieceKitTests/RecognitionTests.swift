@@ -88,6 +88,31 @@ import Testing
         #expect(CardNumberParser.cardID(in: "Monkey D. Luffy 6000") == nil)
         #expect(CardNumberParser.cardID(in: "OP05-11") == nil)
     }
+
+    @Test(arguments: [
+        ("OP0S-119 GIC 2", "OP05-119"),   // S read for 5
+        ("OPO5-1I9", "OP05-119"),         // O for 0, I for 1
+        ("OP05 119 SEC", "OP05-119"),     // dash missing
+        ("OP05119", "OP05-119"),          // no separator at all
+        ("ST0I-0I2", "ST01-012"),
+        ("eb0l–00l", "EB01-001"),         // lowercase l
+        ("OP06-1B8", "OP06-188"),         // B for 8
+        ("P-O42", "P-042"),
+    ])
+    func parsesOCRConfusions(text: String, expected: String) {
+        #expect(CardNumberParser.cardID(in: text) == expected)
+    }
+
+    @Test func listsEveryCandidateOnce() {
+        #expect(CardNumberParser.cardIDs(in: "OP05-118 OP05-119 OP05-118") == ["OP05-118", "OP05-119"])
+        #expect(CardNumberParser.cardIDs(in: "OP01-001 P-042") == ["OP01-001", "P-042"])
+        #expect(CardNumberParser.cardIDs(in: "Monkey D. Luffy 6000").isEmpty)
+    }
+
+    @Test func promoStillNeedsItsDash() {
+        // "P" alone is too common in card text to accept "P 042".
+        #expect(CardNumberParser.cardID(in: "P 042") == nil)
+    }
 }
 
 @Suite struct RankGroupTests {
