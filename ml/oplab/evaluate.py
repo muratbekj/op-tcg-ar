@@ -128,6 +128,19 @@ def split_negatives(negatives: list[dict], indexed: set[str],
     return positives, true_negatives
 
 
+def testset_problems(entries: list[dict], indexed: set[str], limit: int | None, source: list[str] | None) -> str | None:
+    """Why a frozen set can't be scored as-is, or None. A row labeled with a test set must cover all of it."""
+    if limit or source:
+        return "--limit/--source can't be combined with --testset: a frozen set is always scored whole"
+    missing = sorted({e["printingId"] for e in entries if e["printingId"] not in indexed})
+    if missing:
+        n = sum(1 for e in entries if e["printingId"] not in indexed)
+        return (f"{n} of {len(entries)} frozen scans have printings missing from the index "
+                f"({len(missing)}: {', '.join(missing[:10])}{' …' if len(missing) > 10 else ''}); "
+                "rebuild it with the full catalog (generate_embeddings.py default scope)")
+    return None
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--name", default="baseline", help="label for this run in results.csv")
@@ -141,10 +154,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--limit", type=int, help="evaluate only the first N images (quick checks)")
     args = parser.parse_args(argv)
 
-    meta = io.read_json(cardvision.meta_path(args.index))
-    indexed = set(meta["rows"])
     testset_name = ""
     if args.testset:
+        if args.limit or args.source:
+            raise SystemExit("--limit/--source can't be combined with --testset: a frozen set is always scored whole")
         try:
             testset = testsets.load(args.testset)
             entries = testsets.entries(testset, card_ids=dataset.catalog_card_ids())
@@ -155,6 +168,12 @@ def main(argv: list[str] | None = None) -> None:
         if not paths.TEST_MANIFEST.exists():
             raise SystemExit("no test set; run prepare_dataset.py build-test first")
         entries = io.read_json(paths.TEST_MANIFEST)
+    meta = io.read_json(cardvision.meta_path(args.index))
+    indexed = set(meta["rows"])
+    if testset_name:
+        problem = testset_problems(entries, indexed, args.limit, args.source)
+        if problem:
+            raise SystemExit(problem)
     if args.source:
         entries = [e for e in entries if e["tags"]["source"] in args.source]
     catalog_positives, negatives = split_negatives(

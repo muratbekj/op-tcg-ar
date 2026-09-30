@@ -67,3 +67,12 @@ def test_interval_columns_flatten_summary_intervals():
     assert columns == {"top1_low": 0.1, "top1_high": 0.9, "ocr_accuracy_low": 0.2, "ocr_accuracy_high": 0.8,
                        "within_group_low": None, "within_group_high": None}
     assert set(columns) <= set(evaluate.RESULT_COLUMNS)
+
+
+def test_testset_problems():
+    entries = [{"printingId": "A"}, {"printingId": "B"}, {"printingId": "B"}]
+    assert evaluate.testset_problems(entries, {"A", "B"}, None, None) is None
+    assert "--limit" in evaluate.testset_problems(entries, {"A", "B"}, 5, None)
+    assert "--source" in evaluate.testset_problems(entries, {"A", "B"}, None, ["photo"])
+    message = evaluate.testset_problems(entries, {"A"}, None, None)
+    assert "2 of 3" in message and "B" in message and "full catalog" in message
