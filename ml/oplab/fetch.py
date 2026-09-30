@@ -1,4 +1,4 @@
-"""Build data/cards/{cards,printings}.json from roster.json + the OPTCG API, and download art.
+"""Build data/cards/{catalog,cards,printings}.json from roster.json + the OPTCG API, and download art.
 
 roster.json is the hand-edited source of truth: which cards are in the app, their character, their
 default variant, and per-printing variant overrides. cards.json and printings.json are regenerated
@@ -36,6 +36,18 @@ def build_roster_data(rows: list[dict], roster: dict, previous_rows: dict[str, i
     return cards, printings, warnings
 
 
+def catalog_entries(rows: list[dict]) -> list[dict]:
+    """Every printing in the API, one entry each, sorted by printing ID so the file diffs cleanly."""
+    entries: dict[str, dict] = {}
+    for r in rows:
+        entries.setdefault(r["card_image_id"], {
+            "printingId": r["card_image_id"], "cardId": r["card_set_id"], "name": optcg.base_name(r["card_name"]),
+            "set": r["set_id"], "kind": optcg.printing_kind(r), "rarity": r.get("rarity") or "",
+            "artUrl": r.get("card_image"),
+        })
+    return [entries[key] for key in sorted(entries)]
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--refresh", action="store_true", help="re-download API data instead of using the cache")
@@ -49,12 +61,9 @@ def main(argv: list[str] | None = None) -> None:
     rows = optcg.fetch_rows(paths.API_CACHE, refresh=args.refresh)
     print(f"  {len(rows)} printings")
 
-    io.write_json(paths.FULL_CATALOG, [
-        {"printingId": r["card_image_id"], "cardId": r["card_set_id"], "name": optcg.base_name(r["card_name"]),
-         "set": r["set_id"], "kind": optcg.printing_kind(r), "rarity": r.get("rarity") or "",
-         "artUrl": r.get("card_image")}
-        for r in rows
-    ])
+    catalog = catalog_entries(rows)
+    io.write_json(paths.FULL_CATALOG, catalog)
+    print(f"  catalog: {len(catalog)} printings -> {paths.FULL_CATALOG.relative_to(paths.REPO)}")
 
     roster = io.read_json(paths.ROSTER)
     previous_path = paths.DATA_CARDS / "printings.json"
