@@ -1,3 +1,4 @@
+import os
 import json
 
 from oplab import dataset
@@ -131,3 +132,82 @@ def test_train_records_exclude_frozen_scans_relabeled_to_train(tmp_path):
         "name": "test-v1", "version": 1, "frozen": "2026-10-01", "printings": ["OP01-003"],
         "scans": [{"scanId": "frozen", "printingId": "OP01-003", "label": "confirmed", "method": None}]}))
     assert [r["scanId"] for r in dataset.train_records(scans, sets)] == ["fresh"]
+
+
+def test_import_inbox_handles_nested_scans_folder_and_known_scans(tmp_path):
+    inbox, lab = tmp_path / "inbox", tmp_path / "lab"
+    write_scan(inbox / "Scans", "s1", label="confirmed")               # the phone's whole Scans folder
+    write_scan(inbox / "Scans", "s2", label="none")
+    write_scan(inbox, "s3", label="corrected", corrected=True)         # a loose scan folder
+    write_scan(inbox / "Scans", "bad", label="confirmed", crop=False)  # malformed: stays in the inbox
+    (inbox / "Scans" / ".DS_Store").write_bytes(b"")
+    result = dataset.import_inbox(inbox, lab, stamp="20261001-120000")
+    assert result == {"new": 3, "updated": 0, "same": 0, "skipped": ["Scans/bad"],
+                      "archived": str(inbox / "imported" / "20261001-120000")}
+    assert sorted(p.name for p in lab.iterdir()) == ["s1", "s2", "s3"]
+    assert sorted(p.name for p in (inbox / "imported" / "20261001-120000").iterdir()) == ["s1", "s2", "s3"]
+    assert (inbox / "Scans" / "bad" / "scan.json").exists() and not (inbox / "s3").exists()
+
+    # Next session: the phone's Scans folder is copied again (s1 relabeled on the phone, s2 unchanged).
+    write_scan(inbox / "Scans", "s1", label="corrected", corrected=True)
+    write_scan(inbox / "Scans", "s2", label="none")
+    again = dataset.import_inbox(inbox, lab, stamp="20261002-090000")
+    assert (again["new"], again["updated"], again["same"]) == (0, 1, 1)
+    assert dataset.scan_label(json.loads((lab / "s1" / "scan.json").read_text())) == "corrected"
+    assert sorted(p.name for p in inbox.iterdir()) == ["Scans", "imported"]   # Scans kept: "bad" is still there
+
+
+def test_import_inbox_with_nothing_to_import(tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    assert dataset.import_inbox(inbox, tmp_path / "lab", stamp="x") == {
+        "new": 0, "updated": 0, "same": 0, "skipped": [], "archived": None}
+    assert not (inbox / "imported").exists()
+
+
+def test_import_inbox_duplicate_scan_ids_newest_label_wins_and_nothing_is_deleted(tmp_path):
+    inbox, lab = tmp_path / "inbox", tmp_path / "lab"
+    # Path order would apply inbox/s1 (older, "confirmed") after inbox/Scans/s1 (newer, "corrected").
+    newer = write_scan(inbox / "Scans", "s1", label="corrected", corrected=True)
+    older = write_scan(inbox, "s1", label="confirmed")
+    os.utime(newer / "scan.json", (2_000_000_000, 2_000_000_000))
+    os.utime(older / "scan.json", (1_000_000_000, 1_000_000_000))
+    result = dataset.import_inbox(inbox, lab, stamp="a")
+    assert (result["new"], result["updated"]) == (1, 1)
+    assert dataset.scan_label(json.loads((lab / "s1" / "scan.json").read_text())) == "corrected"
+    archived = sorted(p.name for p in (inbox / "imported" / "a").iterdir())
+    assert archived == ["s1", "s1-2"]
+    labels = {dataset.scan_label(json.loads((inbox / "imported" / "a" / n / "scan.json").read_text()))
+              for n in archived}
+    assert labels == {"confirmed", "corrected"}
+
+
+def test_import_inbox_same_stamp_twice_archives_under_suffixed_names(tmp_path):
+    inbox, lab = tmp_path / "inbox", tmp_path / "lab"
+    write_scan(inbox, "s1", label="confirmed")
+    dataset.import_inbox(inbox, lab, stamp="same")
+    write_scan(inbox, "s1", label="confirmed")
+    second = dataset.import_inbox(inbox, lab, stamp="same")
+    assert second["same"] == 1
+    assert sorted(p.name for p in (inbox / "imported" / "same").iterdir()) == ["s1", "s1-2"]
+    assert not (inbox / "s1").exists()
+
+
+def test_import_inbox_skips_scan_json_in_the_inbox_root(tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "scan.json").write_text(json.dumps({"id": "x", "finalPrintingID": "OP01-003"}))
+    (inbox / "crop.jpg").write_bytes(b"jpeg")
+    result = dataset.import_inbox(inbox, tmp_path / "lab", stamp="r")
+    assert result["skipped"] == ["."] and result["archived"] is None
+    assert (inbox / "scan.json").exists()
+
+
+def test_import_folder_leaves_no_partial_copy_and_replaces_a_stale_one(tmp_path):
+    src = write_scan(tmp_path / "src", "s1", label="confirmed")
+    lab = tmp_path / "lab"
+    (lab / "s1.partial").mkdir(parents=True)
+    (lab / "s1.partial" / "junk").write_bytes(b"x")
+    assert dataset._import_folder(src, lab) == "new"
+    assert sorted(p.name for p in lab.iterdir()) == ["s1"]
+    assert sorted(p.name for p in (lab / "s1").iterdir()) == ["crop.jpg", "scan.json"]

@@ -104,7 +104,7 @@ accuracy. Two ways to get real data:
   Then run `build-test` again.
 - **Device scan logs:** the app logs every scan to Documents/Scans with the answer you gave on the
   phone: ✓ = `confirmed`, choosing another printing = `corrected`, no answer = `none`. Only labeled
-  scans are data. Copy the folder to the Mac (Finder > iPhone > Files > OnePieceAR), then:
+  scans are data. Copy the folder to the Mac (Finder > iPhone > Files > OP Card AR), then:
   ```sh
   uv run scripts/prepare_dataset.py import-scans ~/Downloads/Scans   # new scans + refreshed labels
   make status                                                          # labels, split, freeze progress
@@ -140,16 +140,53 @@ training automatically. If v1 beats the baseline in `results.csv`, ship it:
 `generate_embeddings.py --model … --min-similarity <v1's suggestion>`. The app refuses an index built
 with a different model (the backend ID includes the model version).
 
+## Two Macs
+
+The MacBook builds the app; the Mac mini holds the datasets and does training, evals, and the
+showcase. Git carries code and small text artifacts; `ml/shipped/` (what the app bundles) travels by
+rsync.
+
+**Mac mini, once:** clone the repo, install Xcode (same version as the MacBook; same macOS major
+version), install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`) and tmux (`brew install
+tmux`), then `make ml-setup-train`, `mkdir ~/oplab-inbox`, and in System Settings → General → Sharing
+turn on **File Sharing** (add `~/oplab-inbox`) and **Remote Login**.
+
+**MacBook, once:** `cp ml/remote.env.example ml/remote.env`, set `MINI_HOST` (e.g.
+`murat@mac-mini.local`) and `MINI_REPO`. If `~/.ssh/id_ed25519.pub` doesn't exist, run
+`ssh-keygen -t ed25519`. Then `ssh-copy-id murat@mac-mini.local` (the same value as `MINI_HOST`).
+
+**Back on the Mac mini:** run `make mini-doctor` until it says "all set" (the MacBook-key check only
+clears after the MacBook step).
+
+**Each labeling session:**
+1. iPhone → Files → Browse → ⋯ → Connect to Server → `smb://<mini>.local` → copy On My iPhone →
+   OP Card AR → **Scans** into `oplab-inbox`.
+2. Mac mini: `make import-scans` (new scans + refreshed labels; originals move to
+   `oplab-inbox/imported/`), then `make status`. `oplab-inbox/imported/` is only a safety archive of
+   each copy; delete old stamps whenever.
+
+**Shipping to the app:** Mac mini `make ship-baseline` (the feature print as v0; fine-tuned models
+ship with `make ship` in the next phase) → MacBook `make pull-model` → rebuild in Xcode. `pull-model`
+refuses a shipment whose model and index disagree, and removes a stale model for a feature-print
+shipment. If `pull-model` removed a model, do Product → Clean Build Folder (⇧⌘K) before rebuilding.
+Single Mac? `MINI_HOST=local` applies to `pull-model` (`MINI_REPO` is still required); `train-remote`
+needs a real mini.
+
+**Training from the MacBook:** `make train-remote NAME=v1` starts `make train NAME=v1` on the mini in
+tmux (`caffeinate` keeps it awake); `train-remote` prints the exact `ssh -t <host> tmux attach -t train-v1` command to watch it.
+
 ## Scripts
 
 | Script | Does |
 | --- | --- |
 | `fetch_cards.py` | OPTCG API -> roster JSON, art, full catalog |
-| `prepare_dataset.py` | `synth`, `negatives`, `import-scans`, `build-test`, `status`, `freeze-test` |
+| `prepare_dataset.py` | `synth`, `negatives`, `import-scans`, `import-inbox`, `build-test`, `status`, `freeze-test` |
 | `generate_embeddings.py` | reference index via `cardvision embed` (full catalog by default, `--scope roster` for roster only) |
 | `evaluate.py` | metrics via `cardvision match` on the manifest or a frozen test set (`--testset`), report, results history |
 | `train_embedding.py` | fine-tune an embedder on augmented card art |
 | `export_coreml.py` | checkpoint -> Core ML `CardEmbedder.mlpackage` |
+| `ship.py` | `baseline`: ships the feature-print index as v0 into ml/shipped/ |
+| `remote.py` | `pull-model`, `doctor`, `train-remote` |
 
 The code lives in `oplab/`, and the scripts are thin entry points. Everything under `datasets/`,
 `models/`, and `runs/` is gitignored. `results/results.csv` is tracked.

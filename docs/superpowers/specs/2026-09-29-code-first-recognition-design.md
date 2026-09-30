@@ -154,7 +154,7 @@ MacBook: `ml/remote.env` (gitignored) with `MINI_HOST` and `MINI_REPO`.
 | MacBook | `train-remote NAME=vN` | runs `make train` on the mini over SSH inside `tmux` |
 
 The iPhone → mini step is manual: in the Files app, connect to `smb://<mini>.local`, then copy
-On My iPhone → OnePieceAR → Scans into `oplab-inbox`.
+On My iPhone → OP Card AR → Scans into `oplab-inbox`.
 
 The existing Vision feature-print baseline is recorded as `v0` on the first frozen test set, so the
 chart starts from it.
