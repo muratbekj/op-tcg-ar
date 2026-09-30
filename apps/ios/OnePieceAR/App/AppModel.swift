@@ -1,5 +1,6 @@
 import ARKit
 import CardVision
+import ImageIO
 import OnePieceKit
 import RealityKit
 
@@ -34,6 +35,8 @@ final class AppModel {
     }
 
     private(set) var catalog = CardCatalog(cards: [], printings: [], variants: [])
+    /// Every printing recognition can identify (catalog.json), or the roster when it isn't bundled.
+    private(set) var fullCatalog = FullCatalog(entries: [])
     private(set) var loadError: String?
     private(set) var mode: Mode = .solo
     private(set) var slots: [Int: Slot] = [:]
@@ -54,6 +57,8 @@ final class AppModel {
     let battle = BattleCoordinator()
     @ObservationIgnored let assets = AssetService()
     @ObservationIgnored let scanLog = ScanLogger()
+    @ObservationIgnored let thumbnails = ThumbnailStore(
+        directory: URL.cachesDirectory.appending(path: "Thumbnails", directoryHint: .isDirectory))
     @ObservationIgnored private let recognition = RecognitionService()
     @ObservationIgnored private let spawner: CharacterSpawner
     @ObservationIgnored private var anchors: [Int: CardAnchor] = [:]
@@ -109,17 +114,16 @@ final class AppModel {
         let art = catalog.printings.compactMap { printing in
             assets.cardArt(for: printing).map { (printingID: printing.id, image: $0) }
         }
-        let fullCatalog: FullCatalog
         if let url = Bundle.main.url(forResource: "catalog", withExtension: "json"), let loaded = try? FullCatalog.load(from: url) {
-            fullCatalog = loaded
+            self.fullCatalog = loaded
         } else {
             print("AppModel: no catalog.json bundled; recognizing roster printings only")
-            fullCatalog = FullCatalog(roster: catalog)
+            self.fullCatalog = FullCatalog(roster: catalog)
         }
         let bundle = Bundle.main
         if await recognition.prepare(
             catalog: catalog,
-            fullCatalog: fullCatalog,
+            fullCatalog: self.fullCatalog,
             bundledIndex: bundle.url(forResource: "printings", withExtension: "f32"),
             bundledMetadata: bundle.url(forResource: "printings.meta", withExtension: "json"),
             bundledModel: bundle.url(forResource: RecognitionService.modelName, withExtension: "mlmodelc"),
@@ -341,5 +345,16 @@ final class AppModel {
             try? await scanLog.resolve(scanID: scanID, to: printing.id)
         }
         await select(printing, slot: slot, crop: result.crop, scanID: scanID)
+    }
+
+    // MARK: Catalog display
+
+    /// Art for any catalog printing: bundled roster art when there is some, otherwise the cached or
+    /// downloaded thumbnail. `nil` offline or when the printing has no art URL.
+    func thumbnail(for printingID: String) async -> CGImage? {
+        if let printing = catalog.printing(id: printingID), let art = assets.cardArt(for: printing) { return art }
+        guard let entry = fullCatalog.entry(id: printingID), let data = await thumbnails.data(for: entry),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 }
