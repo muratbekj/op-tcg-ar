@@ -50,7 +50,7 @@ def embed(entries: list[dict], out: Path, model: Path | None = None, min_similar
 
 
 def match(index: Path, queries: list[dict], mode: str, k: int = 5, ocr: bool = True,
-          model: Path | None = None) -> list[dict]:
+          model: Path | None = None, catalog: Path | None = None) -> list[dict]:
     """queries: [{"id", "path"}]. mode "photo" detects the card first; "card" treats the image as the card."""
     if not queries:
         return []
@@ -63,6 +63,8 @@ def match(index: Path, queries: list[dict], mode: str, k: int = 5, ocr: bool = T
             command.append("--no-ocr")
         if model:
             command += ["--model", str(model)]
+        if catalog:
+            command += ["--catalog", str(catalog)]
         subprocess.run(command, check=True, env=_env())
         return io.read_jsonl(out)
 

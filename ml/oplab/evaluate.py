@@ -15,7 +15,7 @@ from . import cardvision, dataset, io, metrics, paths
 
 RESULT_COLUMNS = ["timestamp", "name", "backend", "index", "index_printings", "sources", "ocr", "n", "skipped",
                   "detection", "top1", "top3", "top1_given_detected", "card_top1", "variant_top1",
-                  "ocr_used", "median_ms", "negatives", "suggested_threshold"]
+                  "ocr_used", "median_ms", "negatives", "suggested_threshold", "ocr_accuracy", "within_group"]
 
 
 def printing_attributes() -> dict[str, dict]:
@@ -50,8 +50,9 @@ def render_report(name: str, meta: dict, result: dict, skipped: int) -> str:
         f"| Top-1 given detected | {pct(s['top1_given_detected'])} |",
         f"| Top-1 card number | {pct(s['card_top1'])} |",
         f"| Top-1 variant (what spawns) | {pct(s['variant_top1'])} |",
-        f"| OCR used | {pct(s['ocr_used'])} |",
-        f"| OCR accuracy when used | {pct(s['ocr_accuracy'])} |",
+        f"| OCR read a catalog code | {pct(s['ocr_used'])} |",
+        f"| OCR accuracy | {pct(s['ocr_accuracy'])} |",
+        f"| Within-group top-1 (right code, ≥2 printings) | {pct(s['within_group'])} |",
         f"| Median latency (Mac) | {s['median_ms']} ms |", "",
     ]
     for key, values in result["groups"].items():
@@ -77,13 +78,38 @@ def render_report(name: str, meta: dict, result: dict, skipped: int) -> str:
 
 
 def append_result(row: dict) -> None:
+    """Appends one run. An older header is migrated by rewriting the file; old rows keep their values."""
     paths.RESULTS.parent.mkdir(parents=True, exist_ok=True)
-    is_new = not paths.RESULTS.exists()
-    with paths.RESULTS.open("a", newline="") as handle:
+    existing: list[dict] | None = []
+    if paths.RESULTS.exists():
+        with paths.RESULTS.open(newline="") as handle:
+            reader = csv.DictReader(handle)
+            existing = list(reader)
+            if reader.fieldnames == RESULT_COLUMNS:
+                existing = None  # header is current: just append
+    mode = "a" if existing is None else "w"
+    with paths.RESULTS.open(mode, newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=RESULT_COLUMNS)
-        if is_new:
+        if existing is not None:
             writer.writeheader()
+            for old in existing:
+                writer.writerow({k: old.get(k, "") for k in RESULT_COLUMNS})
         writer.writerow({k: row.get(k) for k in RESULT_COLUMNS})
+
+
+def split_negatives(negatives: list[dict], indexed: set[str]) -> tuple[list[dict], list[dict]]:
+    """Negatives are photos of cards outside the roster. When the index covers their printing (a
+    full-catalog index), they are cards the app should identify, so they become labeled positives.
+    Only negatives outside the index remain for the rejection curve."""
+    positives, true_negatives = [], []
+    for entry in negatives:
+        actual = entry["tags"].get("actual")
+        if actual in indexed:
+            positives.append({**entry, "printingId": actual, "cardId": actual.split("_", 1)[0],
+                              "tags": {**entry["tags"], "source": "catalog"}})
+        else:
+            true_negatives.append(entry)
+    return positives, true_negatives
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -104,8 +130,8 @@ def main(argv: list[str] | None = None) -> None:
     entries = io.read_json(paths.TEST_MANIFEST)
     if args.source:
         entries = [e for e in entries if e["tags"]["source"] in args.source]
-    negatives = [e for e in entries if e["printingId"] == dataset.NEGATIVE]
-    in_index = [e for e in entries if e["printingId"] in indexed]
+    catalog_positives, negatives = split_negatives([e for e in entries if e["printingId"] == dataset.NEGATIVE], indexed)
+    in_index = [e for e in entries if e["printingId"] in indexed] + catalog_positives
     skipped = len(entries) - len(in_index) - len(negatives)
     if args.limit:
         in_index = in_index[: args.limit]
@@ -114,17 +140,20 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("no test images whose printing is in the index")
 
     print(f"evaluating {len(in_index)} images against {len(indexed)} printings ({meta['backend']}) …")
+    catalog = paths.FULL_CATALOG if paths.FULL_CATALOG.exists() else None
     predictions = []
     for mode in ("photo", "card"):
         queries = [{"id": e["id"], "path": e["path"]} for e in in_index if e["mode"] == mode]
-        predictions += cardvision.match(args.index, queries, mode, ocr=not args.no_ocr, model=args.model)
+        predictions += cardvision.match(args.index, queries, mode, ocr=not args.no_ocr, model=args.model,
+                                    catalog=catalog)
 
     attributes = printing_attributes()
     variants = variant_lookup()
     truth = {e["id"]: e for e in in_index}
     result = metrics.summarize(predictions, truth, lambda pid: attributes.get(pid, {}), variants.get)
     negative_predictions = cardvision.match(
-        args.index, [{"id": e["id"], "path": e["path"]} for e in negatives], "photo", ocr=not args.no_ocr, model=args.model)
+        args.index, [{"id": e["id"], "path": e["path"]} for e in negatives], "photo", ocr=not args.no_ocr, model=args.model,
+        catalog=catalog)
     curve = metrics.rejection_curve(result["rows"], negative_predictions)
     result["rejection"] = {"negatives": len(negative_predictions), "curve": curve,
                            "suggested_threshold": metrics.suggest_threshold(curve)}
