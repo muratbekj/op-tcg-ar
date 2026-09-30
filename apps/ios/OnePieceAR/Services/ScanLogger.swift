@@ -4,7 +4,7 @@ import ImageIO
 import OnePieceKit
 import UniformTypeIdentifiers
 
-/// Logs every scan (crop + ranked candidates + whether the user corrected it) to
+/// Logs every scan (crop + ranked candidates + the user's confirm/correct label) to
 /// Documents/Scans/<id>/. The folder is visible in Finder's device browser and the Files app,
 /// which is the export path to the Mac for the learning loop.
 actor ScanLogger {
@@ -22,22 +22,22 @@ actor ScanLogger {
             id: id,
             date: .now,
             ocrCardID: result.ocrCardID,
+            method: result.method,
+            groupSize: result.groupSize,
             candidates: result.candidates.map {
                 .init(printingID: $0.printingID, similarity: $0.similarity, matchesOCR: $0.cardID == result.ocrCardID)
             },
-            spawnedPrintingID: spawnedPrintingID,
-            finalPrintingID: spawnedPrintingID,
-            corrected: false)
+            spawnedPrintingID: spawnedPrintingID)
         try write(record, to: folder)
         return id
     }
 
-    func markCorrected(scanID: String, finalPrintingID: String) throws {
+    /// Records the user's answer for a logged scan: confirming the pick or choosing another printing.
+    func resolve(scanID: String, to printingID: String) throws {
         let folder = Self.scansDirectory.appending(path: scanID, directoryHint: .isDirectory)
         let data = try Data(contentsOf: folder.appending(path: "scan.json"))
         var record = try Self.decoder.decode(ScanRecord.self, from: data)
-        record.finalPrintingID = finalPrintingID
-        record.corrected = finalPrintingID != record.spawnedPrintingID
+        record.resolve(to: printingID)
         try write(record, to: folder)
     }
 

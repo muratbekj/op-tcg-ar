@@ -338,7 +338,7 @@ final class AppModel {
         guard let (slot, result) = lastRecognition, let printing = catalog.printing(id: candidate.printingID) else { return }
         let scanID = slots[slot]?.scanID
         if let scanID {
-            try? await scanLog.markCorrected(scanID: scanID, finalPrintingID: printing.id)
+            try? await scanLog.resolve(scanID: scanID, to: printing.id)
         }
         await select(printing, slot: slot, crop: result.crop, scanID: scanID)
     }
