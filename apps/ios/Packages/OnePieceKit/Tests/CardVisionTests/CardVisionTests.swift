@@ -8,7 +8,7 @@ import OnePieceKit
 
 /// Draws a synthetic "card" (distinct pattern per seed) so tests need no copyrighted art. With `code`,
 /// the card number is printed black-on-white in the bottom-right corner, where `CardOCR` reads it.
-func syntheticCard(seed: Int, code: String? = nil, size: CGSize = CGSize(width: 315, height: 440)) -> CGImage {
+func syntheticCard(seed: Int, code: String? = nil, codeScale: CGFloat = 0.05, size: CGSize = CGSize(width: 315, height: 440)) -> CGImage {
     let context = CGContext(
         data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -25,7 +25,7 @@ func syntheticCard(seed: Int, code: String? = nil, size: CGSize = CGSize(width: 
         // CGContext's origin is bottom-left, like Vision's normalized coordinates in CardOCR.numberRegion.
         context.setFillColor(CGColor(gray: 1, alpha: 1))
         context.fill(CGRect(x: size.width * 0.55, y: size.height * 0.02, width: size.width * 0.42, height: size.height * 0.09))
-        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, size.height * 0.05, nil)
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, size.height * codeScale, nil)
         let text = NSAttributedString(string: code, attributes: [
             kCTFontAttributeName as NSAttributedString.Key: font,
             kCTForegroundColorAttributeName as NSAttributedString.Key: CGColor(gray: 0, alpha: 1),
@@ -102,16 +102,37 @@ struct SeededGenerator: RandomNumberGenerator {
     @Test func readSelectionPrefersCatalogCodesAndKeepsRawReadOtherwise() {
         let valid: (String) -> Bool = { $0 == "OP01-001" }
         // Upright misparses to a non-catalog code; the rotated crop carries the real one.
-        let rotatedWins = CardRecognizer.chooseRead(upright: "OP99-999", rotated: "OP01-001", isValid: valid)
+        let rotatedWins = CardRecognizer.chooseRead(upright: ["OP99-999"], rotated: ["OP01-001"], isValid: valid)
         #expect(rotatedWins?.code == "OP01-001" && rotatedWins?.flipped == true && rotatedWins?.valid == true)
-        let uprightWins = CardRecognizer.chooseRead(upright: "OP01-001", rotated: "OP99-999", isValid: valid)
+        let uprightWins = CardRecognizer.chooseRead(upright: ["OP01-001"], rotated: ["OP99-999"], isValid: valid)
         #expect(uprightWins?.code == "OP01-001" && uprightWins?.flipped == false)
-        // Neither is in the catalog: keep the upright raw read, flagged invalid.
-        let raw = CardRecognizer.chooseRead(upright: "OP99-999", rotated: "OP98-998", isValid: valid)
+        // Neither is in the catalog: keep the first upright raw read, flagged invalid.
+        let raw = CardRecognizer.chooseRead(upright: ["OP99-999"], rotated: ["OP98-998"], isValid: valid)
         #expect(raw?.code == "OP99-999" && raw?.valid == false)
-        let rawRotated = CardRecognizer.chooseRead(upright: nil, rotated: "OP98-998", isValid: valid)
+        let rawRotated = CardRecognizer.chooseRead(upright: [], rotated: ["OP98-998"], isValid: valid)
         #expect(rawRotated?.code == "OP98-998" && rawRotated?.flipped == true && rawRotated?.valid == false)
-        #expect(CardRecognizer.chooseRead(upright: nil, rotated: nil, isValid: valid) == nil)
+        #expect(CardRecognizer.chooseRead(upright: [], rotated: [], isValid: valid) == nil)
+    }
+
+    @Test func firstCatalogCandidateWins() {
+        // A confusion-mapped misread that isn't in the catalog must not beat a later valid candidate.
+        let valid: (String) -> Bool = { $0 == "OP05-119" }
+        let pick = CardRecognizer.chooseRead(upright: ["OP05-113", "OP05-119"], rotated: [], isValid: valid)
+        #expect(pick?.code == "OP05-119" && pick?.valid == true && pick?.flipped == false)
+    }
+
+    @Test func numberCropIsEnlarged() throws {
+        let card = try #require(CardCanvas.render(CIImage(cgImage: syntheticCard(seed: 90, size: size)), context: context))
+        let crop = try #require(CardOCR(context: context).numberCrop(of: card))
+        #expect(abs(Double(crop.width) - 0.55 * 630 * 3) < 4)
+        #expect(abs(Double(crop.height) - 0.14 * 880 * 3) < 4)
+    }
+
+    @Test func readsSmallPrintedCode() throws {
+        // ~16 px tall on the canonical card, about the size of a real card's number.
+        let card = try #require(CardCanvas.render(
+            CIImage(cgImage: syntheticCard(seed: 91, code: "OP05-119", codeScale: 0.012, size: size)), context: context))
+        #expect(try CardOCR(context: context).cardIDs(in: card).contains("OP05-119"))
     }
 
     /// References for `(printingID, seed)` pairs, recognized against a catalog built from the same IDs.

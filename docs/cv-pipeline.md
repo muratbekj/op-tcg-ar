@@ -10,8 +10,9 @@ Everything here is unit-tested on the Mac, including real Vision detection on sy
    Minimum size is 20%, confidence 0.5, and there's one observation. Both values were tuned with
    `evaluate.py`: ±0.08 detected only 29% of angled shots.
 2. **Rectify.** `CIPerspectiveCorrection` to 630×880 portrait. Landscape results are rotated.
-3. **Read the code.** `CardOCR` reads the bottom-right 55%×14% of the card and `CardNumberParser`
-   extracts an `OP05-119`-style code. If the upright crop has none, the 180°-rotated crop is tried,
+3. **Read the code.** `CardOCR` crops the bottom-right 55%×14% of the card, enlarges it 3×, and
+   `CardNumberParser` extracts `OP05-119`-style codes, tolerating OCR digit confusions (S→5, O→0,
+   I→1, B→8, …) and a missing dash. The first candidate that exists in the catalog wins. If the upright crop has none, the 180°-rotated crop is tried,
    and the orientation that produced a code is used from then on.
 4. **Look up the group.** `FullCatalog` (`catalog.json`, every printing in the OPTCG API) lists the
    printings that share the code. A code that isn't in the catalog counts as no code.
@@ -58,6 +59,8 @@ references, so real-card numbers will differ. Photograph your cards to get the r
 Comparability: the 2026-09-25 numbers are roster-only (14 printings indexed, 196 synthetic images).
 The code-first run indexes the full catalog (~4.2k printings) and adds 150 catalog-card images, so its
 top-1 isn't directly comparable to this baseline.
+
+OCR hardening (crop + 3× upscale + tolerant parser): OCR accuracy 35.1% → 50.3%, top-1 74.0% → 74.0% (`results.csv` rows `code-first-featureprint` and `ocr-hardened`).
 
 The code-first results are in `ml/results/results.csv`, with the `ocr_accuracy` and `within_group` columns.
 

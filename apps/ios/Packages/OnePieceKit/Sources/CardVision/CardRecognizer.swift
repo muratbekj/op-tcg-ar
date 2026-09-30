@@ -31,13 +31,14 @@ public struct CardRecognizer {
     public var minimumSimilarity: Float = RecognitionDefaults.minimumSimilarity
 
     private let detector: CardDetector
-    private let ocr = CardOCR()
+    private let ocr: CardOCR
     private let context: CIContext
 
     public init(engine: EmbeddingEngine, matcher: VariantMatcher, context: CIContext = CIContext()) {
         self.engine = engine
         self.matcher = matcher
         self.context = context
+        ocr = CardOCR(context: context)
         detector = CardDetector(context: context)
     }
 
@@ -88,26 +89,24 @@ public struct CardRecognizer {
     /// The card code from the upright crop, else from the 180°-rotated one. Only a code in the
     /// catalog counts as valid; `inCatalog == false` means the raw read is kept for analysis only.
     private func readCode(upright: CGImage, rotated: CGImage?) -> (crop: CGImage, code: String, flipped: Bool, inCatalog: Bool)? {
-        let uprightRead = try? ocr.cardID(in: upright)
-        var rotatedRead: String?
-        if let rotated, !Self.isValid(uprightRead, matcher.catalog) { rotatedRead = try? ocr.cardID(in: rotated) }
-        guard let pick = Self.chooseRead(upright: uprightRead, rotated: rotatedRead, isValid: { !matcher.catalog.printings(forCode: $0).isEmpty })
-        else { return nil }
+        let isValid: (String) -> Bool = { !matcher.catalog.printings(forCode: $0).isEmpty }
+        let uprightReads = (try? ocr.cardIDs(in: upright)) ?? []
+        var rotatedReads: [String] = []
+        if let rotated, !uprightReads.contains(where: isValid) {
+            rotatedReads = (try? ocr.cardIDs(in: rotated)) ?? []
+        }
+        guard let pick = Self.chooseRead(upright: uprightReads, rotated: rotatedReads, isValid: isValid) else { return nil }
         return (pick.flipped ? (rotated ?? upright) : upright, pick.code, pick.flipped, pick.valid)
     }
 
-    private static func isValid(_ code: String?, _ catalog: FullCatalog) -> Bool {
-        code.map { !catalog.printings(forCode: $0).isEmpty } ?? false
-    }
-
-    /// Picks the read to use: a valid upright code, else a valid rotated one, else the raw read
-    /// (upright first, else rotated) flagged invalid.
-    static func chooseRead(upright: String?, rotated: String?, isValid: (String) -> Bool)
+    /// Picks the read to use: the first valid upright candidate, else the first valid rotated one,
+    /// else the first raw read (upright first, else rotated) flagged invalid.
+    static func chooseRead(upright: [String], rotated: [String], isValid: (String) -> Bool)
         -> (code: String, flipped: Bool, valid: Bool)? {
-        if let upright, isValid(upright) { return (upright, false, true) }
-        if let rotated, isValid(rotated) { return (rotated, true, true) }
-        if let upright { return (upright, false, false) }
-        if let rotated { return (rotated, true, false) }
+        if let code = upright.first(where: isValid) { return (code, false, true) }
+        if let code = rotated.first(where: isValid) { return (code, true, true) }
+        if let code = upright.first { return (code, false, false) }
+        if let code = rotated.first { return (code, true, false) }
         return nil
     }
 
