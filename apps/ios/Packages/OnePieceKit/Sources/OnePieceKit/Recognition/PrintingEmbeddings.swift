@@ -68,7 +68,8 @@ public struct EmbeddingIndexMetadata: Codable, Hashable, Sendable {
     public let dimension: Int
     /// Printing ID for each row, in file order. IDs may repeat.
     public let rows: [String]
-    /// Top matches below this are rejected (likely a card outside the roster). Chosen per backend
+    /// Applies only to vision-only results (no catalog code was read): a top match below this is
+    /// treated as not a card and scanning continues. Chosen per backend
     /// from `evaluate.py`'s rejection curve; `nil` means use `RecognitionDefaults.minimumSimilarity`.
     public let minimumSimilarity: Float?
 

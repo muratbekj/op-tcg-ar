@@ -68,8 +68,9 @@ uv run scripts/evaluate.py --name my-first-run
 ```
 Read `runs/<timestamp>-my-first-run/report.md`:
 - **Detection:** did the rectangle detector find the card at all?
-- **OCR accuracy:** did OCR read the right code (no read counts as wrong)?
-- **Within-group top-1:** given the right code with ≥2 printings, did the embedder pick the right one? This is the number fine-tuning should move.
+- **OCR accuracy** (detected frames only): did OCR read the right code (no read counts as wrong)?
+- **OCR read a catalog code** (detected frames only, the `ocr_used` column in results.csv): how often OCR produced a code in the catalog. Before code-first recognition `ocr_used` meant "OCR ran and returned something", so older rows aren't comparable.
+- **Within-group top-1** (detected frames only): given the right code with ≥2 printings, did the embedder pick the right one? This is the number fine-tuning should move.
 - **By method:** accuracy for `ocr-unique`, `ocr+vision`, `vision-only`.
 - **Top-1 / top-3 printing:** the exact printing (base vs alt art vs manga).
 - **Top-1 variant:** the one that matters for the product, meaning which character spawns.

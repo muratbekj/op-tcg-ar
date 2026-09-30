@@ -55,6 +55,10 @@ Most printing-level misses are reprints with identical art (for example `OP06-11
 which don't change which character spawns. Synthetic photos share the SAMPLE-watermarked art of the
 references, so real-card numbers will differ. Photograph your cards to get the real test set.
 
+Comparability: the 2026-09-25 numbers are roster-only (14 printings indexed, 196 synthetic images).
+The code-first run indexes the full catalog (~4.2k printings) and adds 150 catalog-card images, so its
+top-1 isn't directly comparable to this baseline.
+
 The code-first results are in `ml/results/results.csv`, with the `ocr_accuracy` and `within_group` columns.
 
 ## Scan logs (learning loop input)
