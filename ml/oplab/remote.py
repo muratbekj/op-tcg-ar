@@ -82,7 +82,11 @@ def main(argv: list[str] | None = None) -> None:
                 command = train_command(host, repo, args.name, args.args)
             except ValueError as error:
                 raise SystemExit(str(error))
-            subprocess.run(command, check=True)
+            try:
+                subprocess.run(command, check=True)
+            except subprocess.CalledProcessError as error:
+                raise SystemExit(f"ssh/tmux on {host} failed (exit {error.returncode}); a session "
+                                 f"train-{args.name} may already be running: ssh -t {host} tmux ls")
             print(f"training {args.name} started on {host} in tmux session train-{args.name}")
             print(f"  watch:  ssh -t {host} tmux attach -t train-{args.name}   (detach: Ctrl-b d)")
             print(f"  log:    {repo}/ml/runs/train-{args.name}.log")

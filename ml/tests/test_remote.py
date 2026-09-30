@@ -43,3 +43,17 @@ def test_train_command_passes_extra_args():
 def test_train_command_rejects_unsafe_names(name):
     with pytest.raises(ValueError, match="NAME"):
         remote.train_command("mini", "~/repo", name)
+
+
+def test_train_remote_reports_ssh_failure(monkeypatch, tmp_path):
+    import subprocess
+
+    monkeypatch.setattr(remote, "mini", lambda: ("me@mini.local", "~/repo"))
+
+    def run(*args, **kwargs):
+        raise subprocess.CalledProcessError(255, "ssh")
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(SystemExit) as info:
+        remote.main(["train-remote", "v1"])
+    message = str(info.value)
+    assert "exit 255" in message and "train-v1" in message and "ssh -t me@mini.local tmux ls" in message

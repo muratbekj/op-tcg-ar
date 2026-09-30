@@ -43,8 +43,9 @@ def test_install_removes_stale_model(tmp_path):
     staged = shipment(tmp_path)                                   # feature print: no model
     data, models = targets(tmp_path)
     (models / "CardEmbedder.mlpackage").mkdir()
-    pull.install(staged, data, models)
+    actions = pull.install(staged, data, models)
     assert not (models / "CardEmbedder.mlpackage").exists()
+    assert any("Clean Build Folder" in a for a in actions)
 
 
 def test_install_refuses_invalid_shipment_without_touching_app(tmp_path):

@@ -57,6 +57,20 @@ class SystemProbe:
         except OSError:
             return False
 
+    def smb_listening(self) -> bool:
+        try:
+            with socket.create_connection(("127.0.0.1", 445), timeout=0.5):
+                return True
+        except OSError:
+            return False
+
+    def login_has(self, cmd: str) -> bool | None:
+        """Whether `cmd` is on PATH in a login shell (train-remote runs under `zsh -lc`)."""
+        try:
+            return subprocess.run(["zsh", "-lc", f"command -v {cmd}"], capture_output=True).returncode == 0
+        except OSError:
+            return None
+
     def authorized_keys(self) -> bool | None:
         keys = Path.home() / ".ssh" / "authorized_keys"
         try:
@@ -71,6 +85,14 @@ class SystemProbe:
             return 0
 
 
+def _login_detail(found: bool | None, on_path: bool, install: str) -> str:
+    if found is None:
+        return "couldn't run a login shell (zsh -lc)"
+    if found:
+        return "found"
+    return "installed but not on the login PATH: add it to ~/.zprofile" if on_path else install
+
+
 def checks(probe) -> list[Check]:
     xcode = probe.xcode_version()
     shared = probe.inbox_shared()
@@ -78,18 +100,21 @@ def checks(probe) -> list[Check]:
     inbox_exists = probe.inbox_exists()
     ssh = probe.ssh_listening()
     keys = probe.authorized_keys()
-    has_uv, has_tmux = probe.which("uv"), probe.which("tmux")
+    smb = probe.smb_listening() if shared else None
+    has_uv, has_tmux = probe.login_has("uv"), probe.login_has("tmux")
     training = probe.has_module("torch") and probe.has_module("coremltools")
     return [
         Check("macOS", True, f"macOS {probe.macos_version()}: keep the MacBook on the same major version"),
         Check("Xcode", xcode is not None, xcode or "install Xcode (same version as the MacBook): evals run the Swift cardvision CLI"),
-        Check("uv", has_uv, "found" if has_uv else "install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"),
-        Check("tmux", has_tmux, "found" if has_tmux else "brew install tmux (train-remote runs training inside it)"),
+        Check("uv", has_uv, _login_detail(has_uv, probe.which("uv"), "install uv: curl -LsSf https://astral.sh/uv/install.sh | sh")),
+        Check("tmux", has_tmux, _login_detail(has_tmux, probe.which("tmux"),
+                                              "brew install tmux (train-remote runs training inside it)")),
         Check("training extras", training, "torch + coremltools" if training else "make ml-setup-train"),
         Check("inbox folder", inbox_exists, str(paths.INBOX) if inbox_exists else "mkdir ~/oplab-inbox"),
-        Check("inbox shared (SMB)", shared,
-              {True: "shared", None: "couldn't read `sharing -l`; check System Settings → General → Sharing → File Sharing"}
-              .get(shared, "System Settings → General → Sharing → File Sharing → + → ~/oplab-inbox")),
+        Check("inbox shared (SMB)", None if shared is None else bool(shared and smb),
+              "couldn't read `sharing -l`; check System Settings → General → Sharing → File Sharing" if shared is None
+              else ("shared" if smb else "turn on File Sharing (System Settings → General → Sharing)") if shared
+              else "System Settings → General → Sharing → File Sharing → + → ~/oplab-inbox"),
         Check("Remote Login (SSH)", ssh,
               "on" if ssh else "System Settings → General → Sharing → Remote Login"),
         Check("MacBook key", keys,

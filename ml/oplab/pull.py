@@ -75,6 +75,8 @@ def install(staged: Path, data_cards: Path = paths.DATA_CARDS, app_models: Path 
         actions.append(f"{shipped.MODEL_DIR} -> {app_models}")
     elif had_model:
         actions.append(f"removed old {shipped.MODEL_DIR}")
+    if had_model:
+        actions.append("Xcode may keep the old compiled model: Product → Clean Build Folder (⇧⌘K) before rebuilding")
     _remove(old_model)
     for name, temp in incoming.items():
         os.replace(temp, data_cards / name)

@@ -5,7 +5,7 @@ class FakeProbe:
     def __init__(self, **overrides):
         self.values = {"macos_version": "26.0", "xcode_version": "Xcode 27.0", "which": {"uv", "tmux", "rsync"},
                        "modules": {"torch", "coremltools"}, "inbox_exists": True, "inbox_shared": True,
-                       "ssh_listening": True, "authorized_keys": True, "index_rows": 4212, **overrides}
+                       "ssh_listening": True, "smb_listening": True, "login": {"uv", "tmux"}, "authorized_keys": True, "index_rows": 4212, **overrides}
 
     def macos_version(self): return self.values["macos_version"]
     def xcode_version(self): return self.values["xcode_version"]
@@ -13,6 +13,8 @@ class FakeProbe:
     def has_module(self, name): return name in self.values["modules"]
     def inbox_exists(self): return self.values["inbox_exists"]
     def inbox_shared(self): return self.values["inbox_shared"]
+    def smb_listening(self): return self.values["smb_listening"]
+    def login_has(self, cmd): return None if self.values["login"] is None else cmd in self.values["login"]
     def ssh_listening(self): return self.values["ssh_listening"]
     def authorized_keys(self): return self.values["authorized_keys"]
     def index_rows(self): return self.values["index_rows"]
@@ -28,7 +30,7 @@ def test_all_good():
 
 
 def test_missing_items_fail_with_hints():
-    results = doctor.checks(FakeProbe(xcode_version=None, which={"rsync"}, modules=set(), inbox_exists=False,
+    results = doctor.checks(FakeProbe(xcode_version=None, which={"rsync"}, login=set(), modules=set(), inbox_exists=False,
                                       inbox_shared=False, ssh_listening=False, authorized_keys=False, index_rows=14))
     text, code = doctor.render(results)
     assert code == 1
@@ -88,3 +90,30 @@ def test_inbox_shared_normalizes_paths(monkeypatch, tmp_path):
 def test_inbox_shared_unknown_when_sharing_fails(monkeypatch):
     _sharing(monkeypatch, None)
     assert doctor.SystemProbe().inbox_shared() is None
+
+
+def test_share_listed_but_smb_off_fails():
+    text, code = doctor.render(doctor.checks(FakeProbe(smb_listening=False)))
+    assert code == 1 and "✗ inbox shared (SMB)" in text and "turn on File Sharing" in text
+
+
+def test_uv_installed_but_not_on_login_path():
+    text, code = doctor.render(doctor.checks(FakeProbe(login=set(), which={"uv", "tmux"})))
+    assert code == 1 and "✗ uv: installed but not on the login PATH" in text and "~/.zprofile" in text
+
+
+def test_login_has_uses_login_shell(monkeypatch):
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        return doctor.subprocess.CompletedProcess(cmd, 0 if cmd[-1].endswith("uv") else 1)
+    monkeypatch.setattr(doctor.subprocess, "run", run)
+    probe = doctor.SystemProbe()
+    assert probe.login_has("uv") is True and probe.login_has("tmux") is False
+    assert calls[0][:2] == ["zsh", "-lc"]
+
+    def boom(*a, **k):
+        raise OSError
+    monkeypatch.setattr(doctor.subprocess, "run", boom)
+    assert probe.login_has("uv") is None

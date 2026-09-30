@@ -65,4 +65,4 @@ train:
 ## MacBook: start `make train NAME=…` on the Mac mini (ml/remote.env) inside tmux.
 train-remote:
 	@test -n "$(NAME)" || { echo "usage: make train-remote NAME=v1 [ARGS='--epochs 10']"; exit 2; }
-	cd ml && uv run scripts/remote.py train-remote "$(NAME)" --args "$(ARGS)"
+	cd ml && uv run scripts/remote.py train-remote "$(NAME)" --args="$(ARGS)"
