@@ -39,3 +39,9 @@ __pycache__/
 apps/ios/OnePieceAR/Resources/Models/
 *.mlpackage
 *.mlmodelc
+
+# Two-Mac workflow
+ml/shipped/
+ml/shipped.staging/
+ml/remote.env
+ml/.pull-staging/

@@ -4,7 +4,7 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 PROJECT := apps/ios/OnePieceAR.xcodeproj
 PACKAGE := apps/ios/Packages/OnePieceKit
 
-.PHONY: test build open ml-setup ml-test eval status freeze-test
+.PHONY: test build open ml-setup ml-test eval status freeze-test ship-baseline
 
 ## Unit tests for models, catalog, recognition math, and battle rules (no device needed). Serial: Vision tests deadlock in parallel.
 test:
@@ -36,3 +36,7 @@ status:
 ## Freeze the next real-scan test set (needs ≥200 labeled test scans across ≥30 printings).
 freeze-test:
 	cd ml && uv run scripts/prepare_dataset.py freeze-test
+
+## Ship the current Vision feature-print index as the baseline (v0) into ml/shipped/.
+ship-baseline:
+	cd ml && uv run scripts/ship.py baseline --name $(or $(NAME),v0)

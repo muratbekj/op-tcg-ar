@@ -33,3 +33,6 @@ TESTSETS = ML / "testsets"  # frozen real-scan test sets, tracked in git
 MODELS = ML / "models"
 RUNS = ML / "runs"
 RESULTS = ML / "results" / "results.csv"  # tracked in git: the history of every evaluation
+SHIPPED = ML / "shipped"  # what the app should bundle; rsynced to the MacBook (gitignored)
+REMOTE_ENV = ML / "remote.env"  # MacBook only: MINI_HOST, MINI_REPO (gitignored)
+INBOX = Path.home() / "oplab-inbox"  # Mac mini: the SMB share the iPhone copies Scans into
