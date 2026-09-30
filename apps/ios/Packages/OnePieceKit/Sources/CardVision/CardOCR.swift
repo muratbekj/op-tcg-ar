@@ -2,8 +2,8 @@ import CoreGraphics
 import OnePieceKit
 import Vision
 
-/// Reads the card number from the bottom-right corner of a canonical card image. Used only to
-/// narrow candidates when art matches are close; it never decides a printing on its own.
+/// Reads the card number from the bottom-right corner of a canonical card image. The first step
+/// of code-first recognition: the code picks the group of printings the embedder chooses among.
 public struct CardOCR {
     /// Vision's normalized coordinates, origin bottom-left.
     public static let numberRegion = CGRect(x: 0.45, y: 0.0, width: 0.55, height: 0.14)

@@ -69,7 +69,7 @@ public struct EmbeddingIndexMetadata: Codable, Hashable, Sendable {
     /// Printing ID for each row, in file order. IDs may repeat.
     public let rows: [String]
     /// Top matches below this are rejected (likely a card outside the roster). Chosen per backend
-    /// from `evaluate.py`'s rejection curve; `nil` means use `CandidateRanker.defaultMinimumSimilarity`.
+    /// from `evaluate.py`'s rejection curve; `nil` means use `RecognitionDefaults.minimumSimilarity`.
     public let minimumSimilarity: Float?
 
     public init(backend: String, dimension: Int, rows: [String], minimumSimilarity: Float? = nil) {

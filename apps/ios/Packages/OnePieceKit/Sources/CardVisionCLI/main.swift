@@ -10,7 +10,9 @@ import OnePieceKit
 //                    [--min-similarity S]
 //   cardvision match --index index.f32 [--meta index.meta.json] --queries q.json --out preds.jsonl
 //                    [--mode photo|card] [--k 5] [--no-ocr] [--model M] [--min-similarity S]
+//                    [--catalog catalog.json]
 //
+// --catalog is data/cards/catalog.json; without it, codes are derived from the index's printing IDs.
 // refs.json:    [{"printingId": "OP05-119_p1", "path": "art/OP05-119_p1.jpg"}, ...]
 // queries.json: [{"id": "any-unique-id", "path": "photos/x.jpg"}, ...]
 // Relative paths resolve against the JSON file's directory. --model takes .mlpackage/.mlmodel/.mlmodelc;
@@ -58,14 +60,15 @@ struct Prediction: Encodable {
     struct Candidate: Encodable {
         let printingId: String
         let cardId: String
-        let similarity: Float
-        let matchesOCR: Bool
+        let similarity: Float?
     }
 
     let id: String
     let detected: Bool
     let flipped: Bool
     let ocrCardId: String?
+    let method: String?
+    let groupSize: Int
     let candidates: [Candidate]
     let ms: Double
     let error: String?
@@ -94,11 +97,6 @@ func makeEngine(_ args: Arguments) async throws -> EmbeddingEngine {
 
 func defaultMetaPath(for indexPath: String) -> String {
     (indexPath as NSString).deletingPathExtension + ".meta.json"
-}
-
-/// Printing IDs from the API are `<cardId>` or `<cardId>_<suffix>`.
-func cardID(ofPrinting id: String) -> String {
-    String(id.split(separator: "_", maxSplits: 1).first ?? Substring(id))
 }
 
 func log(_ message: String) {
@@ -148,14 +146,13 @@ func match(_ args: Arguments) async throws {
         throw Usage(description: "index was built with \(metadata.backend) but the engine is \(engine.backendID)")
     }
     let embeddings = try PrintingEmbeddings.load(from: URL(filePath: indexPath), metadata: metadata)
-    // Recognition only needs printing -> card for OCR narrowing, so a minimal catalog suffices.
-    let printings = Set(metadata.rows).map { Printing(id: $0, cardId: cardID(ofPrinting: $0)) }
-    let catalog = CardCatalog(cards: [], printings: printings, variants: [])
+    let catalog = try args.optional("catalog").map { try FullCatalog.load(from: URL(filePath: $0)) }
+        ?? FullCatalog(printingIDs: metadata.rows)
 
     var recognizer = CardRecognizer(
         engine: engine, matcher: VariantMatcher(catalog: catalog, embeddings: embeddings, source: .bundledIndex))
     recognizer.ocrEnabled = !args.flag("no-ocr")
-    // Evaluation wants every candidate; evaluate.py derives the rejection threshold itself.
+    // Evaluation wants every vision-only candidate; evaluate.py derives the rejection threshold itself.
     recognizer.minimumSimilarity = Float(args.optional("min-similarity") ?? "0") ?? 0
     recognizer.candidateCount = Int(args.optional("k") ?? "5") ?? 5
     let isPhoto = (args.optional("mode") ?? "photo") == "photo"
@@ -177,12 +174,13 @@ func match(_ args: Arguments) async throws {
             let result = isPhoto ? try recognizer.recognize(photo: image) : try recognizer.recognize(cardImage: image)
             prediction = Prediction(
                 id: id, detected: result != nil, flipped: result?.flipped ?? false, ocrCardId: result?.ocrCardID,
+                method: result?.method.rawValue, groupSize: result?.groupSize ?? 0,
                 candidates: (result?.candidates ?? []).map {
-                    .init(printingId: $0.printingID, cardId: $0.cardID, similarity: $0.similarity, matchesOCR: $0.matchesOCR)
+                    .init(printingId: $0.printingID, cardId: $0.cardID, similarity: $0.similarity)
                 },
                 ms: Date.now.timeIntervalSince(start) * 1000, error: nil)
         } catch {
-            prediction = Prediction(id: id, detected: false, flipped: false, ocrCardId: nil, candidates: [],
+            prediction = Prediction(id: id, detected: false, flipped: false, ocrCardId: nil, method: nil, groupSize: 0, candidates: [],
                                     ms: Date.now.timeIntervalSince(start) * 1000, error: "\(error)")
         }
         output.write(try encoder.encode(prediction) + Data("\n".utf8))

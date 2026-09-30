@@ -1,11 +1,14 @@
 import CoreGraphics
+import CoreText
+import Foundation
 import CoreImage
 import Testing
 import OnePieceKit
 @testable import CardVision
 
-/// Draws a synthetic "card" (distinct pattern per seed) so tests need no copyrighted art.
-func syntheticCard(seed: Int, size: CGSize = CGSize(width: 315, height: 440)) -> CGImage {
+/// Draws a synthetic "card" (distinct pattern per seed) so tests need no copyrighted art. With `code`,
+/// the card number is printed black-on-white in the bottom-right corner, where `CardOCR` reads it.
+func syntheticCard(seed: Int, code: String? = nil, size: CGSize = CGSize(width: 315, height: 440)) -> CGImage {
     let context = CGContext(
         data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -18,13 +21,29 @@ func syntheticCard(seed: Int, size: CGSize = CGSize(width: 315, height: 440)) ->
                           width: .random(in: 10...120, using: &rng), height: .random(in: 10...120, using: &rng))
         if Bool.random(using: &rng) { context.fillEllipse(in: rect) } else { context.fill(rect) }
     }
+    if let code {
+        // CGContext's origin is bottom-left, like Vision's normalized coordinates in CardOCR.numberRegion.
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: size.width * 0.55, y: size.height * 0.02, width: size.width * 0.42, height: size.height * 0.09))
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, size.height * 0.05, nil)
+        let text = NSAttributedString(string: code, attributes: [
+            kCTFontAttributeName as NSAttributedString.Key: font,
+            kCTForegroundColorAttributeName as NSAttributedString.Key: CGColor(gray: 0, alpha: 1),
+        ])
+        context.textPosition = CGPoint(x: size.width * 0.58, y: size.height * 0.045)
+        CTLineDraw(CTLineCreateWithAttributedString(text), context)
+    }
     return context.makeImage()!
 }
 
 /// A card composited flat onto a larger dark background, like a photo of a card on a desk.
-func photo(of card: CGImage) -> CIImage {
-    let background = CIImage(color: CIColor(red: 0.08, green: 0.08, blue: 0.1)).cropped(to: CGRect(x: 0, y: 0, width: 900, height: 1200))
-    let placed = CIImage(cgImage: card).transformed(by: CGAffineTransform(translationX: 290, y: 380))
+func photo(of card: CGImage, upsideDown: Bool = false) -> CIImage {
+    let w = CGFloat(card.width), h = CGFloat(card.height)
+    let background = CIImage(color: CIColor(red: 0.08, green: 0.08, blue: 0.1))
+        .cropped(to: CGRect(x: 0, y: 0, width: w * 900 / 315, height: h * 1200 / 440))
+    var image = CIImage(cgImage: card)
+    if upsideDown { image = image.oriented(.down) }
+    let placed = image.transformed(by: CGAffineTransform(translationX: w * 290 / 315, y: h * 380 / 440))
     return placed.composited(over: background)
 }
 
@@ -66,11 +85,89 @@ struct SeededGenerator: RandomNumberGenerator {
         let vectors = try cards.map { try CardRecognizer.referenceEmbedding(for: CIImage(cgImage: $0), engine: engine, context: context) }
         let ids = (10..<15).map { "OP01-0\($0)" }
         let embeddings = try PrintingEmbeddings.build(from: Array(zip(ids, vectors)).map { (printingID: $0.0, vector: $0.1) })
-        let catalog = CardCatalog(cards: [], printings: ids.map { Printing(id: $0, cardId: $0) }, variants: [])
+        let catalog = FullCatalog(printingIDs: ids)
         var recognizer = CardRecognizer(engine: engine, matcher: VariantMatcher(catalog: catalog, embeddings: embeddings, source: .bundledIndex), context: context)
         recognizer.ocrEnabled = false
 
         let result = try #require(try recognizer.recognize(photo: photo(of: cards[2])))
         #expect(result.best?.printingID == ids[2])
+        #expect(result.method == .visionOnly)
+    }
+}
+
+@Suite struct CodeFirstRecognitionTests {
+    let context = CIContext()
+    let size = CGSize(width: 630, height: 880)
+
+    /// References for `(printingID, seed)` pairs, recognized against a catalog built from the same IDs.
+    func makeRecognizer(_ printings: [(id: String, seed: Int)]) throws -> CardRecognizer {
+        let engine = EmbeddingEngine()
+        let rows = try printings.map { printing in
+            (printingID: printing.id,
+             vector: try CardRecognizer.referenceEmbedding(for: CIImage(cgImage: syntheticCard(seed: printing.seed, size: size)), engine: engine, context: context))
+        }
+        let matcher = VariantMatcher(catalog: FullCatalog(printingIDs: printings.map(\.id)),
+                                     embeddings: try PrintingEmbeddings.build(from: rows), source: .bundledIndex)
+        var recognizer = CardRecognizer(engine: engine, matcher: matcher, context: context)
+        recognizer.minimumSimilarity = 0
+        return recognizer
+    }
+
+    @Test func ocrReadsPrintedCode() throws {
+        let card = try #require(CardCanvas.render(CIImage(cgImage: syntheticCard(seed: 20, code: "OP05-119", size: size)), context: context))
+        #expect(try CardOCR().cardID(in: card) == "OP05-119")
+    }
+
+    @Test func uniqueCodeSkipsVision() throws {
+        let recognizer = try makeRecognizer([("OP05-119", 21), ("OP06-118", 22)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 21, code: "OP05-119", size: size))))
+        #expect(result.method == .ocrUnique && result.groupSize == 1)
+        #expect(result.candidates.map(\.printingID) == ["OP05-119"] && result.best?.similarity == nil)
+        #expect(result.ocrCardID == "OP05-119")
+    }
+
+    @Test func sharedCodeRanksOnlyTheGroup() throws {
+        // A distractor from another code is the closest art overall (same seed); it must not appear.
+        let recognizer = try makeRecognizer([("OP05-119", 30), ("OP05-119_p1", 31), ("OP06-118", 31)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 31, code: "OP05-119", size: size))))
+        #expect(result.method == .ocrVision && result.groupSize == 2)
+        #expect(result.candidates.map(\.printingID) == ["OP05-119_p1", "OP05-119"])
+        #expect(result.best?.similarity != nil)
+    }
+
+    @Test func upsideDownCardIsReadRotated() throws {
+        let recognizer = try makeRecognizer([("OP05-119", 40), ("OP05-119_p1", 41)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 41, code: "OP05-119", size: size), upsideDown: true)))
+        #expect(result.flipped && result.method == .ocrVision)
+        #expect(result.best?.printingID == "OP05-119_p1")
+    }
+
+    @Test func noCodeFallsBackToVision() throws {
+        let recognizer = try makeRecognizer([("OP05-119", 50), ("OP06-118", 51)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 51, size: size))))
+        #expect(result.method == .visionOnly && result.groupSize == 0 && result.ocrCardID == nil)
+        #expect(result.best?.printingID == "OP06-118")
+    }
+
+    @Test func codeOutsideCatalogFallsBackToVisionAndKeepsTheRead() throws {
+        let recognizer = try makeRecognizer([("OP05-119", 60), ("OP06-118", 61)])
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 61, code: "OP09-001", size: size))))
+        #expect(result.method == .visionOnly && result.ocrCardID == "OP09-001")
+        #expect(result.best?.printingID == "OP06-118")
+    }
+
+    @Test func thresholdOnlyAppliesToVisionOnly() throws {
+        var strict = try makeRecognizer([("OP05-119", 70), ("OP06-118", 71)])
+        strict.minimumSimilarity = 1.01   // nothing passes the threshold
+        #expect(try strict.recognize(photo: photo(of: syntheticCard(seed: 72, size: size))) == nil)
+        let coded = try strict.recognize(photo: photo(of: syntheticCard(seed: 72, code: "OP05-119", size: size)))
+        #expect(coded?.method == .ocrUnique)
+    }
+
+    @Test func ocrDisabledForcesVisionOnly() throws {
+        var recognizer = try makeRecognizer([("OP05-119", 80), ("OP05-119_p1", 81)])
+        recognizer.ocrEnabled = false
+        let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 81, code: "OP05-119", size: size))))
+        #expect(result.method == .visionOnly && result.ocrCardID == nil)
     }
 }
