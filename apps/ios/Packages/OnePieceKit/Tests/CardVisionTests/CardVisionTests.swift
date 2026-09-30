@@ -99,6 +99,21 @@ struct SeededGenerator: RandomNumberGenerator {
     let context = CIContext()
     let size = CGSize(width: 630, height: 880)
 
+    @Test func readSelectionPrefersCatalogCodesAndKeepsRawReadOtherwise() {
+        let valid: (String) -> Bool = { $0 == "OP01-001" }
+        // Upright misparses to a non-catalog code; the rotated crop carries the real one.
+        let rotatedWins = CardRecognizer.chooseRead(upright: "OP99-999", rotated: "OP01-001", isValid: valid)
+        #expect(rotatedWins?.code == "OP01-001" && rotatedWins?.flipped == true && rotatedWins?.valid == true)
+        let uprightWins = CardRecognizer.chooseRead(upright: "OP01-001", rotated: "OP99-999", isValid: valid)
+        #expect(uprightWins?.code == "OP01-001" && uprightWins?.flipped == false)
+        // Neither is in the catalog: keep the upright raw read, flagged invalid.
+        let raw = CardRecognizer.chooseRead(upright: "OP99-999", rotated: "OP98-998", isValid: valid)
+        #expect(raw?.code == "OP99-999" && raw?.valid == false)
+        let rawRotated = CardRecognizer.chooseRead(upright: nil, rotated: "OP98-998", isValid: valid)
+        #expect(rawRotated?.code == "OP98-998" && rawRotated?.flipped == true && rawRotated?.valid == false)
+        #expect(CardRecognizer.chooseRead(upright: nil, rotated: nil, isValid: valid) == nil)
+    }
+
     /// References for `(printingID, seed)` pairs, recognized against a catalog built from the same IDs.
     func makeRecognizer(_ printings: [(id: String, seed: Int)]) throws -> CardRecognizer {
         let engine = EmbeddingEngine()

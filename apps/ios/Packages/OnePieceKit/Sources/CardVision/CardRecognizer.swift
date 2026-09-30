@@ -57,7 +57,7 @@ public struct CardRecognizer {
         let rotated = CardCanvas.rotated180(upright, context: context)
         let read = ocrEnabled ? readCode(upright: upright, rotated: rotated) : nil
 
-        if let read {
+        if let read, read.inCatalog {
             let group = matcher.catalog.printings(forCode: read.code)
             if group.count == 1 {
                 return RecognitionResult(
@@ -85,10 +85,29 @@ public struct CardRecognizer {
             ocrCardID: read?.code, flipped: best.flipped, method: .visionOnly, groupSize: 0)
     }
 
-    /// The card code from the upright crop, else from the 180°-rotated one.
-    private func readCode(upright: CGImage, rotated: CGImage?) -> (crop: CGImage, code: String, flipped: Bool)? {
-        if let code = try? ocr.cardID(in: upright) { return (upright, code, false) }
-        if let rotated, let code = try? ocr.cardID(in: rotated) { return (rotated, code, true) }
+    /// The card code from the upright crop, else from the 180°-rotated one. Only a code in the
+    /// catalog counts as valid; `inCatalog == false` means the raw read is kept for analysis only.
+    private func readCode(upright: CGImage, rotated: CGImage?) -> (crop: CGImage, code: String, flipped: Bool, inCatalog: Bool)? {
+        let uprightRead = try? ocr.cardID(in: upright)
+        var rotatedRead: String?
+        if let rotated, !Self.isValid(uprightRead, matcher.catalog) { rotatedRead = try? ocr.cardID(in: rotated) }
+        guard let pick = Self.chooseRead(upright: uprightRead, rotated: rotatedRead, isValid: { !matcher.catalog.printings(forCode: $0).isEmpty })
+        else { return nil }
+        return (pick.flipped ? (rotated ?? upright) : upright, pick.code, pick.flipped, pick.valid)
+    }
+
+    private static func isValid(_ code: String?, _ catalog: FullCatalog) -> Bool {
+        code.map { !catalog.printings(forCode: $0).isEmpty } ?? false
+    }
+
+    /// Picks the read to use: a valid upright code, else a valid rotated one, else the raw read
+    /// (upright first, else rotated) flagged invalid.
+    static func chooseRead(upright: String?, rotated: String?, isValid: (String) -> Bool)
+        -> (code: String, flipped: Bool, valid: Bool)? {
+        if let upright, isValid(upright) { return (upright, false, true) }
+        if let rotated, isValid(rotated) { return (rotated, true, true) }
+        if let upright { return (upright, false, false) }
+        if let rotated { return (rotated, true, false) }
         return nil
     }
 
