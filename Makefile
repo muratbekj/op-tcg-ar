@@ -1,5 +1,10 @@
-# Uses the full Xcode toolchain even when xcode-select points at the Command Line Tools.
-export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
+# Uses the full Xcode toolchain when it's installed, even if xcode-select points at the Command Line
+# Tools. Without Xcode (e.g. the Mac mini) the Command Line Tools build the ML lab's Swift CLI; the
+# app's `test`/`build` targets still need Xcode.
+XCODE_DEVELOPER := /Applications/Xcode.app/Contents/Developer
+ifneq ($(wildcard $(XCODE_DEVELOPER)),)
+export DEVELOPER_DIR ?= $(XCODE_DEVELOPER)
+endif
 
 PROJECT := apps/ios/OnePieceAR.xcodeproj
 PACKAGE := apps/ios/Packages/OnePieceKit
@@ -53,7 +58,7 @@ pull-model:
 ml-setup-train:
 	cd ml && uv sync --extra train
 
-## Mac mini: check the one-time two-Mac setup (Xcode, uv, SMB inbox, Remote Login, index).
+## Mac mini: check the one-time two-Mac setup (Swift toolchain, uv, SMB inbox, Remote Login, index).
 mini-doctor:
 	cd ml && uv run scripts/remote.py doctor
 

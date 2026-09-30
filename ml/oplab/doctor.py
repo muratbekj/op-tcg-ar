@@ -4,13 +4,14 @@ The checks run against a probe so they can be tested without a second Mac."""
 import importlib.util
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import io, paths
+from . import cardvision, io, paths
 
 FULL_CATALOG_ROWS = 4000
 
@@ -26,12 +27,15 @@ class SystemProbe:
     def macos_version(self) -> str:
         return platform.mac_ver()[0] or "unknown"
 
-    def xcode_version(self) -> str | None:
+    def swift_version(self) -> str | None:
+        """The Swift toolchain that builds the cardvision CLI: Xcode's when installed, otherwise the
+        Command Line Tools' (enough on the Mac mini). The line holding "Swift version", or None."""
         try:
-            out = subprocess.run(["xcodebuild", "-version"], capture_output=True, text=True, check=True).stdout
+            out = subprocess.run(["swift", "--version"], capture_output=True, text=True, check=True,
+                                 env=cardvision._env()).stdout
         except (OSError, subprocess.CalledProcessError):
             return None
-        return out.splitlines()[0] if out else None
+        return next((line.strip() for line in out.splitlines() if "Swift version" in line), None)
 
     def which(self, cmd: str) -> bool:
         return shutil.which(cmd) is not None
@@ -85,6 +89,22 @@ class SystemProbe:
             return 0
 
 
+def swift_major(version: str) -> int | None:
+    match = re.search(r"Swift version (\d+)", version)
+    return int(match.group(1)) if match else None
+
+
+def _swift_check(version: str | None) -> Check:
+    if version is None:
+        return Check("Swift toolchain", False,
+                     "install the Command Line Tools: xcode-select --install (Xcode isn't needed on the mini)")
+    major = swift_major(version)
+    if major is None or major < 6:
+        return Check("Swift toolchain", False,
+                     f"{version}: Swift 6 needed, update the Command Line Tools (Software Update) or Xcode")
+    return Check("Swift toolchain", True, version)
+
+
 def _login_detail(found: bool | None, on_path: bool, install: str) -> str:
     if found is None:
         return "couldn't run a login shell (zsh -lc)"
@@ -94,7 +114,6 @@ def _login_detail(found: bool | None, on_path: bool, install: str) -> str:
 
 
 def checks(probe) -> list[Check]:
-    xcode = probe.xcode_version()
     shared = probe.inbox_shared()
     rows = probe.index_rows()
     inbox_exists = probe.inbox_exists()
@@ -104,8 +123,9 @@ def checks(probe) -> list[Check]:
     has_uv, has_tmux = probe.login_has("uv"), probe.login_has("tmux")
     training = probe.has_module("torch") and probe.has_module("coremltools")
     return [
-        Check("macOS", True, f"macOS {probe.macos_version()}: keep the MacBook on the same major version"),
-        Check("Xcode", xcode is not None, xcode or "install Xcode (same version as the MacBook): evals run the Swift cardvision CLI"),
+        Check("macOS", True, f"macOS {probe.macos_version()}: Vision's feature print can differ between macOS "
+                             "versions; compare an index with the MacBook's once (ml/README.md, Two Macs)"),
+        _swift_check(probe.swift_version()),
         Check("uv", has_uv, _login_detail(has_uv, probe.which("uv"), "install uv: curl -LsSf https://astral.sh/uv/install.sh | sh")),
         Check("tmux", has_tmux, _login_detail(has_tmux, probe.which("tmux"),
                                               "brew install tmux (train-remote runs training inside it)")),

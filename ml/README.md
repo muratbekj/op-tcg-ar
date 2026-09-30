@@ -24,8 +24,8 @@ uv sync --extra train    # + torch, torchvision, coremltools (only for fine-tuni
 uv run pytest -q         # lab unit tests
 ```
 
-The first `cardvision` call builds the Swift CLI (about 30 s). It needs Xcode, and `DEVELOPER_DIR`
-is set automatically.
+The first `cardvision` call builds the Swift CLI (about 30 s). It needs a Swift 6 toolchain on macOS 15+:
+Xcode if installed (picked automatically), otherwise the Command Line Tools (`xcode-select --install`).
 
 ## Walkthrough: from nothing to a report
 
@@ -146,8 +146,8 @@ The MacBook builds the app; the Mac mini holds the datasets and does training, e
 showcase. Git carries code and small text artifacts; `ml/shipped/` (what the app bundles) travels by
 rsync.
 
-**Mac mini, once:** clone the repo, install Xcode (same version as the MacBook; same macOS major
-version), install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`) and tmux (`brew install
+**Mac mini, once:** clone the repo, install the Command Line Tools (`xcode-select --install`, ~3 GB;
+Xcode isn't needed, but macOS 15+ is), install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`) and tmux (`brew install
 tmux`), then `make ml-setup-train`, `mkdir ~/oplab-inbox`, and in System Settings → General → Sharing
 turn on **File Sharing** (add `~/oplab-inbox`) and **Remote Login**.
 
@@ -157,6 +157,16 @@ turn on **File Sharing** (add `~/oplab-inbox`) and **Remote Login**.
 
 **Back on the Mac mini:** run `make mini-doctor` until it says "all set" (the MacBook-key check only
 clears after the MacBook step).
+
+**Check the index once:** Vision's feature print can differ slightly between macOS versions, and the
+phone runs its own OS. After both Macs have built the full index (`generate_embeddings.py`), compare
+them on the MacBook:
+```sh
+rsync -a murat@mac-mini.local:~/github/op-tcg-ar/data/cards/printings.{f32,meta.json} /tmp/
+cd ml && uv run scripts/compare_index.py ../data/cards/printings.f32 /tmp/printings.f32
+```
+"interchangeable" (cosine ≥ 0.99 for every printing) means the mini can build everything it ships.
+Otherwise build the shipped index on the MacBook.
 
 **Each labeling session:**
 1. iPhone → Files → Browse → ⋯ → Connect to Server → `smb://<mini>.local` → copy On My iPhone →
@@ -186,6 +196,7 @@ tmux (`caffeinate` keeps it awake); `train-remote` prints the exact `ssh -t <hos
 | `train_embedding.py` | fine-tune an embedder on augmented card art |
 | `export_coreml.py` | checkpoint -> Core ML `CardEmbedder.mlpackage` |
 | `ship.py` | `baseline`: ships the feature-print index as v0 into ml/shipped/ |
+| `compare_index.py` | compare two indexes built on different Macs (cosine per printing) |
 | `remote.py` | `pull-model`, `doctor`, `train-remote` |
 
 The code lives in `oplab/`, and the scripts are thin entry points. Everything under `datasets/`,

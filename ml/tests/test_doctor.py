@@ -3,12 +3,12 @@ from oplab import doctor
 
 class FakeProbe:
     def __init__(self, **overrides):
-        self.values = {"macos_version": "26.0", "xcode_version": "Xcode 27.0", "which": {"uv", "tmux", "rsync"},
+        self.values = {"macos_version": "26.0", "swift_version": "Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)", "which": {"uv", "tmux", "rsync"},
                        "modules": {"torch", "coremltools"}, "inbox_exists": True, "inbox_shared": True,
                        "ssh_listening": True, "smb_listening": True, "login": {"uv", "tmux"}, "authorized_keys": True, "index_rows": 4212, **overrides}
 
     def macos_version(self): return self.values["macos_version"]
-    def xcode_version(self): return self.values["xcode_version"]
+    def swift_version(self): return self.values["swift_version"]
     def which(self, cmd): return cmd in self.values["which"]
     def has_module(self, name): return name in self.values["modules"]
     def inbox_exists(self): return self.values["inbox_exists"]
@@ -22,21 +22,33 @@ class FakeProbe:
 
 def test_all_good():
     results = doctor.checks(FakeProbe())
-    assert [c.name for c in results] == ["macOS", "Xcode", "uv", "tmux", "training extras", "inbox folder",
+    assert [c.name for c in results] == ["macOS", "Swift toolchain", "uv", "tmux", "training extras", "inbox folder",
                                          "inbox shared (SMB)", "Remote Login (SSH)", "MacBook key", "full-catalog index"]
     text, code = doctor.render(results)
     assert code == 0 and "✗" not in text
-    assert "macOS 26.0" in text and "Xcode 27.0" in text
+    assert "macOS 26.0" in text and "Apple Swift version 6.1.2" in text
 
 
 def test_missing_items_fail_with_hints():
-    results = doctor.checks(FakeProbe(xcode_version=None, which={"rsync"}, login=set(), modules=set(), inbox_exists=False,
+    results = doctor.checks(FakeProbe(swift_version=None, which={"rsync"}, login=set(), modules=set(), inbox_exists=False,
                                       inbox_shared=False, ssh_listening=False, authorized_keys=False, index_rows=14))
     text, code = doctor.render(results)
     assert code == 1
-    assert "✗ Xcode" in text and "✗ uv" in text and "brew install tmux" in text and "make ml-setup-train" in text
+    assert "✗ Swift toolchain" in text and "xcode-select --install" in text and "✗ uv" in text and "brew install tmux" in text and "make ml-setup-train" in text
     assert "mkdir ~/oplab-inbox" in text and "File Sharing" in text and "Remote Login" in text
     assert "ssh-copy-id" in text and "generate_embeddings.py" in text
+
+
+def test_swift_older_than_6_fails():
+    results = doctor.checks(FakeProbe(swift_version="Apple Swift version 5.10 (swiftlang-5.10.0.13 clang-1500.3.9.4)"))
+    text, code = doctor.render(results)
+    assert code == 1 and "✗ Swift toolchain" in text and "Swift 6" in text
+
+
+def test_swift_major():
+    assert doctor.swift_major("Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)") == 6
+    assert doctor.swift_major("swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3)") == 6
+    assert doctor.swift_major("something else") is None
 
 
 def test_unknown_sharing_state_is_not_a_failure():
