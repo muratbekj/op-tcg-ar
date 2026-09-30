@@ -11,7 +11,7 @@ here is the number the phone would get.
 card art ─┐                                   ┌─► data/cards/printings.f32 + .meta.json ─► app
           ├─► generate_embeddings ─(cardvision embed)─┘
 scans ────┘                                                    
-test set (photos, synth, scans, negatives) ─► evaluate ─(cardvision match)─► report + results.csv
+test set (photos, synth, negatives) ─► evaluate ─(cardvision match)─► report + results.csv
 card art ─► train_embedding (PyTorch) ─► export_coreml ─► CardEmbedder.mlpackage ─► app / --model
 ```
 
@@ -72,6 +72,7 @@ Read `runs/<timestamp>-my-first-run/report.md`:
 - **OCR read a catalog code** (detected frames only, the `ocr_used` column in results.csv): how often OCR produced a code in the catalog. Before code-first recognition `ocr_used` meant "OCR ran and returned something", so older rows aren't comparable.
 - **Within-group top-1** (detected frames only): given the right code with ≥2 printings, did the embedder pick the right one? This is the number fine-tuning should move.
 - **By method:** accuracy for `ocr-unique`, `ocr+vision`, `vision-only`.
+- Top-1, OCR accuracy, detection, and within-group show a 95% Wilson confidence interval: with 200 test scans at ~75% accuracy it is about ±6 points, so smaller differences between models are noise.
 - **Top-1 / top-3 printing:** the exact printing (base vs alt art vs manga).
 - **Top-1 variant:** the one that matters for the product, meaning which character spawns.
 - **By condition / kind / set:** where it breaks. Precision appears for printing attributes.
@@ -101,15 +102,28 @@ accuracy. Two ways to get real data:
 - **Your own photos:** `datasets/raw/photos/<printingId>/<condition>/*.jpg`, for example
   `photos/OP05-119_p1/glare/IMG_0412.jpg`. Take them on your desk under different lighting and angles.
   Then run `build-test` again.
-- **Device scan logs:** the app logs every scan to Documents/Scans. Copy that folder to the Mac through
-  Finder (iPhone > Files > OnePieceAR), then run:
+- **Device scan logs:** the app logs every scan to Documents/Scans with the answer you gave on the
+  phone: ✓ = `confirmed`, choosing another printing = `corrected`, no answer = `none`. Only labeled
+  scans are data. Copy the folder to the Mac (Finder > iPhone > Files > OnePieceAR), then:
   ```sh
-  uv run scripts/prepare_dataset.py import-scans ~/Downloads/Scans
-  uv run scripts/prepare_dataset.py build-test
+  uv run scripts/prepare_dataset.py import-scans ~/Downloads/Scans   # new scans + refreshed labels
+  make status                                                          # labels, split, freeze progress
   ```
-  A stable 30% of scans become test images. The rest can become extra references:
-  `generate_embeddings.py --with-scans corrected`. Clean photos of real cards as references are the
-  simplest way to beat the watermark.
+  **Split by printing, not by scan:** a stable hash sends ~30% of printings to *test* forever, so no
+  photo of a test card is ever used for training (no leakage). Test scans wait in a pool; once it holds
+  ≥200 labeled scans across ≥30 printings, `make freeze-test` writes `ml/testsets/test-vN.json` —
+  commit it. Every model is then scored on the same frozen set:
+  ```sh
+  uv run scripts/evaluate.py --testset latest --name <model>
+  ```
+  Only printings in the recognition index can be frozen (the rest are reported as not freezable). Once the
+  phone's logs are deleted, `ml/datasets/raw/scans` is the only full copy of frozen crops: back it up (a
+  frozen set whose crops are gone can't be scored).
+  Scans arriving later go to the pool for the next version, never into a frozen set. Train-split scans
+  can become extra references: `generate_embeddings.py --with-scans labeled`.
+
+  **v0 baseline:** right after freezing `test-v1`, record the Vision feature print on it, before any
+  fine-tuned model: `uv run scripts/evaluate.py --testset test-v1 --name v0`.
 
 ## Fine-tuning (only once feature prints plateau)
 
@@ -131,9 +145,9 @@ with a different model (the backend ID includes the model version).
 | Script | Does |
 | --- | --- |
 | `fetch_cards.py` | OPTCG API -> roster JSON, art, full catalog |
-| `prepare_dataset.py` | `synth`, `negatives`, `import-scans`, `build-test` |
+| `prepare_dataset.py` | `synth`, `negatives`, `import-scans`, `build-test`, `status`, `freeze-test` |
 | `generate_embeddings.py` | reference index via `cardvision embed` (full catalog by default, `--scope roster` for roster only) |
-| `evaluate.py` | metrics via `cardvision match`, report, results history |
+| `evaluate.py` | metrics via `cardvision match` on the manifest or a frozen test set (`--testset`), report, results history |
 | `train_embedding.py` | fine-tune an embedder on augmented card art |
 | `export_coreml.py` | checkpoint -> Core ML `CardEmbedder.mlpackage` |
 

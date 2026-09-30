@@ -23,13 +23,6 @@ def test_render_photo_and_augment_sizes():
     assert synth.augment_card(card, rng).size == synth.TRAIN_SIZE
 
 
-def test_scan_split_is_stable_and_roughly_30_percent():
-    ids = [f"scan-{i}" for i in range(2000)]
-    splits = [dataset.scan_split(i) for i in ids]
-    assert splits == [dataset.scan_split(i) for i in ids]
-    assert 0.25 < splits.count("test") / len(ids) < 0.35
-
-
 def test_card_stays_in_frame():
     for seed in range(200):
         rng = np.random.default_rng(seed)

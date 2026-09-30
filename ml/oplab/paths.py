@@ -28,6 +28,7 @@ PROCESSED = DATASETS / "processed"
 REFERENCES = DATASETS / "references"
 TEST = DATASETS / "test"
 TEST_MANIFEST = TEST / "manifest.json"
+TESTSETS = ML / "testsets"  # frozen real-scan test sets, tracked in git
 
 MODELS = ML / "models"
 RUNS = ML / "runs"

@@ -1,5 +1,6 @@
 """Recognition metrics. Pure functions over predictions (from `cardvision match`) and ground truth."""
 
+import math
 from collections import defaultdict
 from statistics import median
 from typing import Callable
@@ -9,6 +10,25 @@ PRINTING_ATTRIBUTES = ("set", "rarity", "kind")
 
 def top_ids(prediction: dict, k: int) -> list[str]:
     return [c["printingId"] for c in prediction.get("candidates", [])[:k]]
+
+
+def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float | None, float | None]:
+    """95% Wilson score interval for a proportion; (None, None) with no observations."""
+    if n == 0:
+        return None, None
+    p = successes / n
+    denominator = 1 + z * z / n
+    center = (p + z * z / (2 * n)) / denominator
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denominator
+    return round(max(0.0, center - half), 4), round(min(1.0, center + half), 4)
+
+
+def rate_ci(values: list) -> tuple[float | None, list]:
+    """(rate, [low, high]) over the non-None booleans."""
+    values = [v for v in values if v is not None]
+    if not values:
+        return None, [None, None]
+    return round(sum(values) / len(values), 4), list(wilson(sum(values), len(values)))
 
 
 def summarize(
@@ -55,17 +75,23 @@ def summarize(
         return round(sum(values) / len(values), 4) if values else None
 
     detected = [r for r in rows if r["detected"]]
+    detection, detection_ci = rate_ci([r["detected"] for r in rows])
+    top1, top1_ci = rate_ci([r["top1"] for r in rows])
+    ocr_accuracy, ocr_accuracy_ci = rate_ci([r["ocr_correct"] for r in detected])
+    within_group, within_group_ci = rate_ci([r["top1"] for r in detected if r["method"] == "ocr+vision" and r["ocr_correct"]])
     summary = {
         "n": len(rows),
-        "detection": rate([r["detected"] for r in rows]),
-        "top1": rate([r["top1"] for r in rows]),
+        "detection": detection,
+        "top1": top1,
         "top3": rate([r["top3"] for r in rows]),
         "top1_given_detected": rate([r["top1"] for r in detected]),
         "card_top1": rate([r["card"] for r in rows]),
         "variant_top1": rate([r["variant"] for r in rows]),
         "ocr_used": rate([r["method"] not in (None, "vision-only") for r in detected]),
-        "ocr_accuracy": rate([r["ocr_correct"] for r in detected]),
-        "within_group": rate([r["top1"] for r in detected if r["method"] == "ocr+vision" and r["ocr_correct"]]),
+        "ocr_accuracy": ocr_accuracy,
+        "within_group": within_group,
+        "detection_ci": detection_ci, "top1_ci": top1_ci,
+        "ocr_accuracy_ci": ocr_accuracy_ci, "within_group_ci": within_group_ci,
         "median_ms": round(median(r["ms"] for r in rows if r["ms"] is not None), 1) if rows else None,
     }
     return {"summary": summary, "groups": group_metrics(rows, attributes), "hard_cases": hard_cases(rows), "rows": rows}

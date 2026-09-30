@@ -5,7 +5,8 @@ Every card in the catalog, plus the roster's own clean art (app's Resources/Card
 Each printing can have several reference rows:
 - API art (data/cards/art/<id>.jpg), which carries a SAMPLE watermark
 - your own clean scan in the app's Resources/Cards/<id>.* (if it differs from the API art)
-- with --with-scans: confirmed device scans from the reference split (the learning loop)
+- with --with-scans: labeled device scans of train-split printings (labeled = confirmed + corrected,
+  corrected = corrections only; the learning loop)
 Identical images are embedded once (deduplicated by content digest).
 Needs ~1.4 GB: run fetch_cards.py --art all first.
 
@@ -40,25 +41,40 @@ def roster_references(with_scans: str) -> list[dict]:
         for own in sorted(paths.APP_CARDS.glob(f"{printing['id']}.*")):
             add(printing["id"], own, "app")
 
-    if with_scans != "none":
-        roster_ids = {e["printingId"] for e in entries}
-        for record in dataset.scan_records():
-            trusted = with_scans == "all" or record["label"] == "corrected"
-            if record["split"] == "reference" and trusted and record["printingId"] in roster_ids:
-                add(record["printingId"], Path(record["path"]), "scan")
+    entries += scan_references(with_scans, {e["printingId"] for e in entries}, seen)
+    return entries
+
+
+def scan_references(with_scans: str, printing_ids: set[str] | None, seen: set[str]) -> list[dict]:
+    """Labeled device scans of train-split printings as extra reference rows (never test printings or frozen scans).
+    `labeled`: confirmed and corrected; `corrected`: corrections only. `printing_ids` limits them to
+    those printings (roster scope); None allows any. `seen` holds digests already embedded."""
+    if with_scans == "none":
+        return []
+    entries = []
+    for record in dataset.train_records():
+        if with_scans == "corrected" and record["label"] != "corrected":
+            continue
+        if printing_ids is not None and record["printingId"] not in printing_ids:
+            continue
+        digest = _digest(Path(record["path"]))
+        if digest not in seen:
+            seen.add(digest)
+            entries.append({"printingId": record["printingId"], "path": record["path"], "source": "scan"})
     return entries
 
 
 def full_references(with_scans: str = "none") -> list[dict]:
     """Roster references first (they may include your own clean art and scans), then the API art of
     every other catalog printing. Identical images are embedded once."""
-    entries = roster_references(with_scans)
+    entries = roster_references("none")
     seen = {_digest(Path(e["path"])) for e in entries}
     for printing in io.read_json(paths.FULL_CATALOG):
         art = paths.ART / f"{printing['printingId']}.jpg"
         if art.exists() and (digest := _digest(art)) not in seen:
             seen.add(digest)
             entries.append({"printingId": printing["printingId"], "path": str(art), "source": "api"})
+    entries += scan_references(with_scans, None, seen)
     return entries
 
 
@@ -78,8 +94,9 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scope", choices=["roster", "full"], default="full",
                         help="full (default): every catalog printing, bundled into the app; roster: roster printings only")
-    parser.add_argument("--with-scans", choices=["none", "corrected", "all"], default="none",
-                        help="add device scans from the reference split as extra rows")
+    parser.add_argument("--with-scans", choices=["none", "labeled", "corrected"], default="none",
+                        help="add labeled device scans of train-split printings as extra reference rows: "
+                             "labeled = confirmed+corrected, corrected = corrections only")
     parser.add_argument("--model", type=Path, help="Core ML embedder (.mlpackage); default is the Vision feature print")
     parser.add_argument("--out", type=Path, help="output .f32 (default depends on scope)")
     parser.add_argument("--min-similarity", type=float,

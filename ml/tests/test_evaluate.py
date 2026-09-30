@@ -27,7 +27,7 @@ def test_split_negatives_takes_card_id_from_the_catalog():
 
 def test_append_result_migrates_old_header(tmp_path, monkeypatch):
     results = tmp_path / "results.csv"
-    old_columns = [c for c in evaluate.RESULT_COLUMNS if c not in ("ocr_accuracy", "within_group")]
+    old_columns = evaluate.RESULT_COLUMNS[:evaluate.RESULT_COLUMNS.index("ocr_accuracy")]
     with results.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=old_columns)
         writer.writeheader()
@@ -43,3 +43,36 @@ def test_append_result_migrates_old_header(tmp_path, monkeypatch):
     assert [r["name"] for r in rows] == ["featureprint-baseline", "code-first"]
     assert rows[0]["top1"] == "0.7704" and rows[0]["within_group"] == ""
     assert rows[1]["within_group"] == "0.8"
+
+
+def test_result_columns_end_with_testset_and_intervals():
+    assert evaluate.RESULT_COLUMNS[-7:] == ["testset", "top1_low", "top1_high", "ocr_accuracy_low",
+                                           "ocr_accuracy_high", "within_group_low", "within_group_high"]
+
+
+def test_report_shows_intervals():
+    summary = {"n": 2, "detection": 1.0, "top1": 0.5, "top3": 0.5, "top1_given_detected": 0.5, "card_top1": 0.5,
+               "variant_top1": None, "ocr_used": 0.5, "ocr_accuracy": 0.5, "within_group": None, "median_ms": 10.0,
+               "detection_ci": [0.3424, 1.0], "top1_ci": [0.0946, 0.9054], "ocr_accuracy_ci": [0.0946, 0.9054],
+               "within_group_ci": [None, None]}
+    meta = {"backend": "vision-featureprint-r2", "rows": ["A", "B"]}
+    report = evaluate.render_report("run", meta, {"summary": summary, "groups": {}, "hard_cases": []}, 0)
+    assert "| Top-1 printing | 50.0% (9.5–90.5%) |" in report
+    assert "| Within-group top-1 (right code, ≥2 printings) | – |" in report
+
+
+def test_interval_columns_flatten_summary_intervals():
+    summary = {"top1_ci": [0.1, 0.9], "ocr_accuracy_ci": [0.2, 0.8], "within_group_ci": [None, None]}
+    columns = evaluate.interval_columns(summary)
+    assert columns == {"top1_low": 0.1, "top1_high": 0.9, "ocr_accuracy_low": 0.2, "ocr_accuracy_high": 0.8,
+                       "within_group_low": None, "within_group_high": None}
+    assert set(columns) <= set(evaluate.RESULT_COLUMNS)
+
+
+def test_testset_problems():
+    entries = [{"printingId": "A"}, {"printingId": "B"}, {"printingId": "B"}]
+    assert evaluate.testset_problems(entries, {"A", "B"}, None, None) is None
+    assert "--limit" in evaluate.testset_problems(entries, {"A", "B"}, 5, None)
+    assert "--source" in evaluate.testset_problems(entries, {"A", "B"}, None, ["photo"])
+    message = evaluate.testset_problems(entries, {"A"}, None, None)
+    assert "2 of 3" in message and "B" in message and "full catalog" in message

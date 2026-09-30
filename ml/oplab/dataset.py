@@ -6,8 +6,10 @@ Sources, all under ml/datasets/raw/ (gitignored):
 - synth/<printingId>/*.jpg  synthetic photos from API art
 - negatives/<printingId>/*.jpg  synthetic photos of cards outside the roster (should be rejected)
 
-Scan logs are split by a stable hash of the scan ID: 30% join the test set, the rest are available
-as extra references (the learning loop). The split never changes as new scans arrive.
+Scan logs are real data only once the user answered them on the phone: `label` is `confirmed` or
+`corrected`. Unlabeled scans (`none`) are never used. Labeled scans are split by a stable hash of their
+printing ID: ~30% of printings are test-only forever, so photos of the same physical card never land
+on both sides. Test scans are scored through frozen test sets (`testsets.py`), never the manifest.
 """
 
 import argparse
@@ -25,39 +27,90 @@ TEST_FRACTION = 0.3
 NEGATIVE = "none"  # printingId of test images that should not match anything
 
 
-def scan_split(scan_id: str) -> str:
-    bucket = int(hashlib.sha256(scan_id.encode()).hexdigest(), 16) % 100
-    return "test" if bucket < TEST_FRACTION * 100 else "reference"
+LABELED = ("confirmed", "corrected")
 
 
-def scan_records(scans_dir: Path = paths.SCANS) -> list[dict]:
-    """Each logged scan with its label. Uncorrected scans are weak labels: the user saw the top
-    guess and didn't object, which is usually but not always right."""
+def printing_split(printing_id: str) -> str:
+    """'test' for a stable ~30% of printings, else 'train'. Every real scan of a printing lands on the
+    same side forever, so the test score measures cards the model never saw photographed."""
+    bucket = int(hashlib.sha256(printing_id.encode()).hexdigest(), 16) % 100
+    return "test" if bucket < TEST_FRACTION * 100 else "train"
+
+
+def scan_label(record: dict) -> str:
+    """confirmed | corrected | none. Records logged before labels existed only carry `corrected`."""
+    label = record.get("label")
+    if label in ("confirmed", "corrected", "none"):
+        return label
+    return "corrected" if record.get("corrected") else "none"
+
+
+def scan_records(scans_dir: Path = paths.SCANS, labeled_only: bool = True) -> list[dict]:
+    """Imported scans with a crop, in scan-ID order. By default only labeled ones; folders with an
+    unreadable or incomplete scan.json are skipped."""
     records = []
     for record_path in sorted(scans_dir.glob("*/scan.json")):
-        record = io.read_json(record_path)
         crop = record_path.parent / "crop.jpg"
         if not crop.exists():
             continue
+        try:
+            record = io.read_json(record_path)
+            scan_id, printing_id = record["id"], record["finalPrintingID"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        scan_id = str(scan_id)
+        if scan_id != record_path.parent.name:  # entries() resolves crops by folder name
+            continue
+        label = scan_label(record)
+        if labeled_only and label not in LABELED:
+            continue
         records.append({
-            "id": f"scan:{record['id']}",
+            "id": f"scan:{scan_id}",
+            "scanId": scan_id,
             "path": str(crop),
-            "printingId": record["finalPrintingID"],
-            "label": "corrected" if record.get("corrected") else "weak",
-            "split": scan_split(record["id"]),
+            "printingId": printing_id,
+            "label": label,
+            "method": record.get("method"),
+            "split": printing_split(printing_id),
         })
     return records
 
 
-def import_scans(source: Path) -> int:
-    """Copies an exported Scans folder into datasets/raw/scans, skipping ones already imported."""
-    count = 0
+def train_records(scans_dir: Path = paths.SCANS, testsets_dir: Path = paths.TESTSETS) -> list[dict]:
+    """Labeled train-split scans that no frozen test set holds, so a relabeled frozen scan never trains."""
+    from . import testsets  # here, not at module top: testsets imports dataset
+
+    frozen = testsets._frozen_ids(testsets.frozen_sets(testsets_dir))
+    return [r for r in scan_records(scans_dir) if r["split"] == "train" and r["scanId"] not in frozen]
+
+
+def import_scans(source: Path, scans_dir: Path = paths.SCANS) -> dict:
+    """Copies new scan folders from an exported Scans folder and refreshes scan.json of already
+    imported ones (a scan can be confirmed or corrected on the phone after an earlier export).
+    Crops never change on the device (only scan.json is rewritten when a scan is relabeled), so only
+    scan.json is compared. Folders without crop.jpg or with an unreadable or incomplete scan.json are
+    skipped, reported, and left where they are; an existing imported copy is never overwritten by one."""
+    new, updated, skipped = 0, 0, []
     for record in sorted(source.glob("*/scan.json")):
-        target = paths.SCANS / record.parent.name
+        folder = record.parent
+        try:
+            data = io.read_json(record)
+            data["id"], data["finalPrintingID"]
+        except (ValueError, KeyError, TypeError):
+            skipped.append(folder.name)
+            continue
+        if not (folder / "crop.jpg").exists():
+            skipped.append(folder.name)
+            continue
+        target = scans_dir / folder.name
         if not target.exists():
-            shutil.copytree(record.parent, target)
-            count += 1
-    return count
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(folder, target)
+            new += 1
+        elif not (target / "scan.json").exists() or record.read_bytes() != (target / "scan.json").read_bytes():
+            shutil.copy2(record, target / "scan.json")
+            updated += 1
+    return {"new": new, "updated": updated, "skipped": skipped}
 
 
 def generate_synth(printing_ids: list[str], per_printing: int, seed: int) -> int:
@@ -147,19 +200,24 @@ def card_id_of(printing_id: str, card_ids: dict[str, str] | None = None) -> str:
 
 
 def build_test_manifest() -> list[dict]:
-    """Photos (all), synthetic photos (all), and the test split of scans (already rectified crops)."""
+    """Diagnostics: your photos, synthetic photos, and negatives. Real scans are scored through frozen test sets (testsets.py)."""
     entries = photo_entries() + synth_entries() + negative_entries()
-    for record in scan_records():
-        if record["split"] == "test":
-            entries.append({"id": record["id"], "path": record["path"], "printingId": record["printingId"],
-                            "mode": "card", "tags": {"source": "scan", "label": record["label"]}})
     card_ids = catalog_card_ids()
     for entry in entries:
         entry["cardId"] = NEGATIVE if entry["printingId"] == NEGATIVE else card_id_of(entry["printingId"], card_ids)
     return entries
 
 
+def index_printings() -> set[str] | None:
+    """Printing IDs in the recognition index, or None when its metadata file doesn't exist."""
+    if not paths.INDEX_META.exists():
+        return None
+    return set(io.read_json(paths.INDEX_META)["rows"])
+
+
 def main(argv: list[str] | None = None) -> None:
+    from . import testsets  # here, not at module top: testsets imports dataset
+
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     scans = sub.add_parser("import-scans", help="copy an exported device Scans folder into datasets/raw/scans")
@@ -172,10 +230,18 @@ def main(argv: list[str] | None = None) -> None:
     neg.add_argument("--count", type=int, default=150)
     neg.add_argument("--seed", type=int, default=0)
     sub.add_parser("build-test", help="assemble datasets/test/manifest.json")
+    sub.add_parser("status", help="labels, split, and test-set freeze progress")
+    sub.add_parser("freeze-test", help="freeze the next real-scan test set once the pool is big enough")
     args = parser.parse_args(argv)
 
     if args.command == "import-scans":
-        print(f"imported {import_scans(args.source)} scans")
+        result = import_scans(args.source)
+        print(f"imported {result['new']} new scans, refreshed {result['updated']} labels")
+        if result["skipped"]:
+            print(f"  skipped {len(result['skipped'])} folders without crop.jpg or with an unreadable scan.json: "
+                  f"{', '.join(result['skipped'][:10])}")
+        if not any(args.source.glob("*/scan.json")):
+            print(f"  no <scanId>/scan.json found under {args.source}; the source should be the Scans folder itself")
     elif args.command == "synth":
         if args.scope == "roster":
             ids = [p["id"] for p in io.read_json(paths.DATA_CARDS / "printings.json")]
@@ -191,6 +257,22 @@ def main(argv: list[str] | None = None) -> None:
         for entry in entries:
             by_source[entry["tags"]["source"]] = by_source.get(entry["tags"]["source"], 0) + 1
         print(f"test set: {len(entries)} images {by_source} -> {paths.TEST_MANIFEST}")
+    elif args.command == "status":
+        indexed = index_printings()
+        for line in testsets.status_lines(scan_records(labeled_only=False), testsets.frozen_sets(), indexed=indexed):
+            print(line)
+        if indexed is None:
+            print("index missing: can't tell which scans are freezable (build it: generate_embeddings.py)")
+    elif args.command == "freeze-test":
+        indexed = index_printings()
+        if indexed is None:
+            raise SystemExit("not frozen: build the full-catalog index first: generate_embeddings.py")
+        try:
+            frozen = testsets.freeze(scan_records(), indexed=indexed)
+        except testsets.FreezeError as error:
+            raise SystemExit(f"not frozen: {error}")
+        print(f"froze {frozen['name']}: {len(frozen['scans'])} scans across {len(frozen['printings'])} printings "
+              f"-> {paths.TESTSETS.relative_to(paths.REPO)}/{frozen['name']}.json (commit it)")
 
 
 if __name__ == "__main__":
