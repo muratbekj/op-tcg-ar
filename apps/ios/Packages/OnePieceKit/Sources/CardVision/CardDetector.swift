@@ -2,6 +2,12 @@ import CoreImage
 import OnePieceKit
 import Vision
 
+/// A detected card: the rectified canonical crop and where it was in the image.
+public struct DetectedCard: Sendable {
+    public let crop: CGImage
+    public let quad: CardQuad
+}
+
 /// Finds a card-shaped rectangle in a photo or camera frame and returns it perspective-corrected,
 /// upright (portrait), at the canonical card size.
 public struct CardDetector {
@@ -14,7 +20,7 @@ public struct CardDetector {
     }
 
     /// - Parameter image: image already rotated to match what the user sees (portrait).
-    public func detectCard(in image: CIImage) throws -> CGImage? {
+    public func detect(in image: CIImage) throws -> DetectedCard? {
         let request = VNDetectRectanglesRequest()
         // Wider than the card's 0.716 on the high side: a card tilted away from the camera
         // foreshortens and looks squarer (eval: 29% detection on angled shots with ±0.08).
@@ -26,8 +32,15 @@ public struct CardDetector {
         request.maximumObservations = 1
 
         try VNImageRequestHandler(ciImage: image, options: [:]).perform([request])
-        guard let rectangle = request.results?.first else { return nil }
-        return rectify(image, rectangle)
+        guard let rectangle = request.results?.first, let crop = rectify(image, rectangle) else { return nil }
+        let quad = CardQuad(topLeft: rectangle.topLeft, topRight: rectangle.topRight,
+                            bottomRight: rectangle.bottomRight, bottomLeft: rectangle.bottomLeft)
+        return DetectedCard(crop: crop, quad: quad)
+    }
+
+    /// The rectified card only.
+    public func detectCard(in image: CIImage) throws -> CGImage? {
+        try detect(in: image)?.crop
     }
 
     private func rectify(_ image: CIImage, _ rectangle: VNRectangleObservation) -> CGImage? {

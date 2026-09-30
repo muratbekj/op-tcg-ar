@@ -148,3 +148,16 @@ import Testing
         #expect([RecognitionMethod.ocrUnique, .ocrVision, .visionOnly].map(\.rawValue) == ["ocr-unique", "ocr+vision", "vision-only"])
     }
 }
+
+@Suite struct CardQuadTests {
+    @Test func sensorCornersRotateBackToLandscape() {
+        // Full-frame quad in the portrait image (Vision coords, origin bottom-left).
+        let quad = CardQuad(topLeft: CGPoint(x: 0, y: 1), topRight: CGPoint(x: 1, y: 1),
+                            bottomRight: CGPoint(x: 1, y: 0), bottomLeft: CGPoint(x: 0, y: 0))
+        // The portrait image is the sensor image rotated 90° clockwise (`.oriented(.right)`):
+        // portrait top-left came from sensor bottom-left, top-right from top-left, and so on.
+        #expect(quad.sensorCorners == [CGPoint(x: 0, y: 1), CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0), CGPoint(x: 1, y: 1)])
+        let point = CardQuad(topLeft: CGPoint(x: 0.25, y: 0.75), topRight: .zero, bottomRight: .zero, bottomLeft: .zero)
+        #expect(point.sensorCorners[0] == CGPoint(x: 0.25, y: 0.75))
+    }
+}

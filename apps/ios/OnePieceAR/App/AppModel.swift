@@ -325,7 +325,7 @@ final class AppModel {
         lastRecognitionAttempt = now
         let buffer = PixelBufferBox(buffer: frame.capturedImage)
         Task {
-            let result = try? await recognition.recognize(buffer)
+            let result = (try? await recognition.attempt(buffer))?.result
             recognitionBusy = false
             guard scanState == .searching, let result, let best = result.best,
                   let printing = catalog.printing(id: best.printingID) else { return }

@@ -16,6 +16,27 @@ public struct RecognitionResult: Sendable {
     public var best: RecognitionCandidate? { candidates.first }
 }
 
+extension RecognitionResult {
+    /// "OP05-119 · 4 printings", or "Matched by art · 5 candidates" when no catalog code was read.
+    public var groupSummary: String {
+        switch method {
+        case .ocrUnique, .ocrVision:
+            "\(ocrCardID ?? "?") · \(groupSize) printing\(groupSize == 1 ? "" : "s")"
+        case .visionOnly:
+            "Matched by art · \(candidates.count) candidate\(candidates.count == 1 ? "" : "s")"
+        }
+    }
+}
+
+/// One camera frame's outcome, for the live debug overlay: where the card was (if anywhere) and the
+/// recognition result (if one passed).
+public struct RecognitionAttempt: Sendable {
+    /// `nil` when no card-shaped rectangle was detected.
+    public let quad: CardQuad?
+    /// `nil` when nothing was detected or a vision-only match fell below the threshold.
+    public let result: RecognitionResult?
+}
+
 /// The full recognition pipeline, shared by the app and the `cardvision` CLI so offline
 /// evaluation measures exactly what runs on the phone.
 ///
@@ -44,10 +65,16 @@ public struct CardRecognizer {
         detector = CardDetector(context: context)
     }
 
+    /// Photo or camera frame: find the card, then recognize it. Reports the detected quad even when
+    /// recognition returns nothing.
+    public func attempt(photo: CIImage) throws -> RecognitionAttempt {
+        guard let card = try detector.detect(in: photo) else { return RecognitionAttempt(quad: nil, result: nil) }
+        return RecognitionAttempt(quad: card.quad, result: try recognize(canonicalCard: card.crop))
+    }
+
     /// Photo or camera frame: find the card first. `nil` when no card-shaped rectangle is found.
     public func recognize(photo: CIImage) throws -> RecognitionResult? {
-        guard let card = try detector.detectCard(in: photo) else { return nil }
-        return try recognize(canonicalCard: card)
+        try attempt(photo: photo).result
     }
 
     /// An image that is already just the card (reference art, logged scan crop).

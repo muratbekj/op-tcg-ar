@@ -93,6 +93,29 @@ struct SeededGenerator: RandomNumberGenerator {
         #expect(result.best?.printingID == ids[2])
         #expect(result.method == .visionOnly)
     }
+
+    @Test func detectReportsTheCardQuad() throws {
+        let detected = try #require(try CardDetector(context: context).detect(in: photo(of: syntheticCard(seed: 5))))
+        // photo(of:) places the card at x 290/900…605/900 and y 380/1200…820/1200 (origin bottom-left).
+        let quad = detected.quad
+        #expect(abs(quad.topLeft.x - 290.0 / 900) < 0.02 && abs(quad.topLeft.y - 820.0 / 1200) < 0.02)
+        #expect(abs(quad.bottomRight.x - 605.0 / 900) < 0.02 && abs(quad.bottomRight.y - 380.0 / 1200) < 0.02)
+        #expect(detected.crop.width == 630)
+    }
+
+    @Test func attemptWithoutACardHasNoQuad() throws {
+        let engine = EmbeddingEngine()
+        let ids = ["OP01-010"]
+        let embeddings = try PrintingEmbeddings.build(from: [
+            (printingID: ids[0], vector: try CardRecognizer.referenceEmbedding(for: CIImage(cgImage: syntheticCard(seed: 10)), engine: engine, context: context)),
+        ])
+        let recognizer = CardRecognizer(engine: engine, matcher: VariantMatcher(catalog: FullCatalog(printingIDs: ids), embeddings: embeddings, source: .bundledIndex), context: context)
+        let empty = CIImage(color: CIColor(red: 0.08, green: 0.08, blue: 0.1)).cropped(to: CGRect(x: 0, y: 0, width: 900, height: 1200))
+        let attempt = try recognizer.attempt(photo: empty)
+        #expect(attempt.quad == nil && attempt.result == nil)
+        let found = try recognizer.attempt(photo: photo(of: syntheticCard(seed: 10)))
+        #expect(found.quad != nil)
+    }
 }
 
 @Suite struct CodeFirstRecognitionTests {
@@ -220,5 +243,17 @@ struct SeededGenerator: RandomNumberGenerator {
         recognizer.ocrEnabled = false
         let result = try #require(try recognizer.recognize(photo: photo(of: syntheticCard(seed: 81, code: "OP05-119", size: size))))
         #expect(result.method == .visionOnly && result.ocrCardID == nil)
+    }
+    @Test func groupSummaryText() throws {
+        let crop = syntheticCard(seed: 95)
+        let candidate = RecognitionCandidate(printingID: "OP05-119", cardID: "OP05-119", similarity: nil)
+        func result(_ method: RecognitionMethod, group: Int, count: Int) -> RecognitionResult {
+            RecognitionResult(crop: crop, candidates: Array(repeating: candidate, count: count), ocrCardID: "OP05-119",
+                              flipped: false, method: method, groupSize: group)
+        }
+        #expect(result(.ocrVision, group: 4, count: 4).groupSummary == "OP05-119 · 4 printings")
+        #expect(result(.ocrUnique, group: 1, count: 1).groupSummary == "OP05-119 · 1 printing")
+        #expect(result(.visionOnly, group: 0, count: 5).groupSummary == "Matched by art · 5 candidates")
+        #expect(result(.visionOnly, group: 0, count: 1).groupSummary == "Matched by art · 1 candidate")
     }
 }
