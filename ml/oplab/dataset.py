@@ -197,6 +197,8 @@ def build_test_manifest() -> list[dict]:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from . import testsets  # here, not at module top: testsets imports dataset
+
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     scans = sub.add_parser("import-scans", help="copy an exported device Scans folder into datasets/raw/scans")
@@ -209,6 +211,8 @@ def main(argv: list[str] | None = None) -> None:
     neg.add_argument("--count", type=int, default=150)
     neg.add_argument("--seed", type=int, default=0)
     sub.add_parser("build-test", help="assemble datasets/test/manifest.json")
+    sub.add_parser("status", help="labels, split, and test-set freeze progress")
+    sub.add_parser("freeze-test", help="freeze the next real-scan test set once the pool is big enough")
     args = parser.parse_args(argv)
 
     if args.command == "import-scans":
@@ -231,6 +235,16 @@ def main(argv: list[str] | None = None) -> None:
         for entry in entries:
             by_source[entry["tags"]["source"]] = by_source.get(entry["tags"]["source"], 0) + 1
         print(f"test set: {len(entries)} images {by_source} -> {paths.TEST_MANIFEST}")
+    elif args.command == "status":
+        for line in testsets.status_lines(scan_records(labeled_only=False), testsets.frozen_sets()):
+            print(line)
+    elif args.command == "freeze-test":
+        try:
+            frozen = testsets.freeze(scan_records())
+        except testsets.FreezeError as error:
+            raise SystemExit(f"not frozen: {error}")
+        print(f"froze {frozen['name']}: {len(frozen['scans'])} scans across {len(frozen['printings'])} printings "
+              f"-> {paths.TESTSETS.relative_to(paths.REPO)}/{frozen['name']}.json (commit it)")
 
 
 if __name__ == "__main__":
