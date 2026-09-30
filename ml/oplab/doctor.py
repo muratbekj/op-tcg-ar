@@ -2,6 +2,7 @@
 The checks run against a probe so they can be tested without a second Mac."""
 
 import importlib.util
+import os
 import platform
 import shutil
 import socket
@@ -47,7 +48,7 @@ class SystemProbe:
         except (OSError, subprocess.CalledProcessError):
             return None
         shared = {line.split(":", 1)[1].strip() for line in out.splitlines() if line.strip().startswith("path:")}
-        return str(paths.INBOX) in shared
+        return os.path.realpath(paths.INBOX) in {os.path.realpath(p) for p in shared}
 
     def ssh_listening(self) -> bool:
         try:
@@ -56,33 +57,44 @@ class SystemProbe:
         except OSError:
             return False
 
-    def authorized_keys(self) -> bool:
+    def authorized_keys(self) -> bool | None:
         keys = Path.home() / ".ssh" / "authorized_keys"
-        return keys.exists() and keys.read_text().strip() != ""
+        try:
+            return keys.exists() and keys.read_text().strip() != ""
+        except (OSError, UnicodeError):
+            return None
 
     def index_rows(self) -> int:
-        return len(io.read_json(paths.INDEX_META)["rows"]) if paths.INDEX_META.exists() else 0
+        try:
+            return len(io.read_json(paths.INDEX_META)["rows"]) if paths.INDEX_META.exists() else 0
+        except (OSError, ValueError, KeyError, TypeError):
+            return 0
 
 
 def checks(probe) -> list[Check]:
     xcode = probe.xcode_version()
     shared = probe.inbox_shared()
     rows = probe.index_rows()
+    inbox_exists = probe.inbox_exists()
+    ssh = probe.ssh_listening()
+    keys = probe.authorized_keys()
+    has_uv, has_tmux = probe.which("uv"), probe.which("tmux")
     training = probe.has_module("torch") and probe.has_module("coremltools")
     return [
         Check("macOS", True, f"macOS {probe.macos_version()}: keep the MacBook on the same major version"),
         Check("Xcode", xcode is not None, xcode or "install Xcode (same version as the MacBook): evals run the Swift cardvision CLI"),
-        Check("uv", probe.which("uv"), "found" if probe.which("uv") else "install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"),
-        Check("tmux", probe.which("tmux"), "found" if probe.which("tmux") else "brew install tmux (train-remote runs training inside it)"),
+        Check("uv", has_uv, "found" if has_uv else "install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"),
+        Check("tmux", has_tmux, "found" if has_tmux else "brew install tmux (train-remote runs training inside it)"),
         Check("training extras", training, "torch + coremltools" if training else "make ml-setup-train"),
-        Check("inbox folder", probe.inbox_exists(), str(paths.INBOX) if probe.inbox_exists() else "mkdir ~/oplab-inbox"),
+        Check("inbox folder", inbox_exists, str(paths.INBOX) if inbox_exists else "mkdir ~/oplab-inbox"),
         Check("inbox shared (SMB)", shared,
               {True: "shared", None: "couldn't read `sharing -l`; check System Settings → General → Sharing → File Sharing"}
               .get(shared, "System Settings → General → Sharing → File Sharing → + → ~/oplab-inbox")),
-        Check("Remote Login (SSH)", probe.ssh_listening(),
-              "on" if probe.ssh_listening() else "System Settings → General → Sharing → Remote Login"),
-        Check("MacBook key", probe.authorized_keys(),
-              "authorized" if probe.authorized_keys() else "on the MacBook: ssh-copy-id <user>@<this-mac>.local"),
+        Check("Remote Login (SSH)", ssh,
+              "on" if ssh else "System Settings → General → Sharing → Remote Login"),
+        Check("MacBook key", keys,
+              {True: "authorized", None: "couldn't read ~/.ssh/authorized_keys"}
+              .get(keys, "on the MacBook: ssh-copy-id <user>@<this-mac>.local")),
         Check("full-catalog index", rows >= FULL_CATALOG_ROWS,
               f"{rows} rows" if rows >= FULL_CATALOG_ROWS else
               f"{rows} rows; run fetch_cards.py --art all, then generate_embeddings.py --min-similarity 0.8"),

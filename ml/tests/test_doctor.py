@@ -41,3 +41,50 @@ def test_unknown_sharing_state_is_not_a_failure():
     results = doctor.checks(FakeProbe(inbox_shared=None))
     text, code = doctor.render(results)
     assert code == 0 and "? inbox shared (SMB)" in text
+
+
+def test_unreadable_authorized_keys_is_unknown(monkeypatch, tmp_path):
+    (tmp_path / ".ssh").mkdir()
+    (tmp_path / ".ssh" / "authorized_keys").write_bytes(b"\xff\xfe\x00bad")
+    monkeypatch.setattr(doctor.Path, "home", lambda: tmp_path)
+    assert doctor.SystemProbe().authorized_keys() is None
+    (tmp_path / ".ssh" / "authorized_keys").write_text("ssh-ed25519 AAA me\n")
+    assert doctor.SystemProbe().authorized_keys() is True
+
+
+def test_unknown_keys_render_question_mark():
+    text, code = doctor.render(doctor.checks(FakeProbe(authorized_keys=None)))
+    assert code == 0 and "? MacBook key: couldn't read ~/.ssh/authorized_keys" in text
+
+
+def test_malformed_index_meta_counts_zero(monkeypatch, tmp_path):
+    meta = tmp_path / "meta.json"
+    monkeypatch.setattr(doctor.paths, "INDEX_META", meta)
+    for content in ['{"rows": [1, 2', '{"nope": 1}', "[1]", '{"rows": 5}']:
+        meta.write_text(content)
+        assert doctor.SystemProbe().index_rows() == 0
+    meta.write_text('{"rows": [1, 2, 3]}')
+    assert doctor.SystemProbe().index_rows() == 3
+
+
+def _sharing(monkeypatch, stdout=None):
+    def run(*args, **kwargs):
+        if stdout is None:
+            raise doctor.subprocess.CalledProcessError(1, "sharing")
+        return doctor.subprocess.CompletedProcess(args, 0, stdout=stdout)
+    monkeypatch.setattr(doctor.subprocess, "run", run)
+
+
+def test_inbox_shared_normalizes_paths(monkeypatch, tmp_path):
+    inbox = tmp_path / "oplab-inbox"
+    inbox.mkdir()
+    monkeypatch.setattr(doctor.paths, "INBOX", inbox)
+    _sharing(monkeypatch, f"name:\t\tinbox\npath:\t\t{inbox}/\n")
+    assert doctor.SystemProbe().inbox_shared() is True
+    _sharing(monkeypatch, "path:\t\t/somewhere/else\n")
+    assert doctor.SystemProbe().inbox_shared() is False
+
+
+def test_inbox_shared_unknown_when_sharing_fails(monkeypatch):
+    _sharing(monkeypatch, None)
+    assert doctor.SystemProbe().inbox_shared() is None
