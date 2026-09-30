@@ -4,7 +4,7 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 PROJECT := apps/ios/OnePieceAR.xcodeproj
 PACKAGE := apps/ios/Packages/OnePieceKit
 
-.PHONY: test build open ml-setup ml-test eval status freeze-test ship-baseline pull-model import-scans mini-doctor ml-setup-train
+.PHONY: test build open ml-setup ml-test eval status freeze-test ship-baseline pull-model import-scans mini-doctor ml-setup-train train train-remote
 
 ## Unit tests for models, catalog, recognition math, and battle rules (no device needed). Serial: Vision tests deadlock in parallel.
 test:
@@ -56,3 +56,13 @@ ml-setup-train:
 ## Mac mini: check the one-time two-Mac setup (Xcode, uv, SMB inbox, Remote Login, index).
 mini-doctor:
 	cd ml && uv run scripts/remote.py doctor
+
+## Mac mini: fine-tune an embedder, keeping the Mac awake. NAME=v1 required; ARGS passes extra options.
+train:
+	@test -n "$(NAME)" || { echo "usage: make train NAME=v1 [ARGS='--epochs 10']"; exit 2; }
+	cd ml && caffeinate -i uv run scripts/train_embedding.py --name $(NAME) $(ARGS)
+
+## MacBook: start `make train NAME=…` on the Mac mini (ml/remote.env) inside tmux.
+train-remote:
+	@test -n "$(NAME)" || { echo "usage: make train-remote NAME=v1 [ARGS='--epochs 10']"; exit 2; }
+	cd ml && uv run scripts/remote.py train-remote "$(NAME)" --args "$(ARGS)"

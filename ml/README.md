@@ -140,16 +140,46 @@ training automatically. If v1 beats the baseline in `results.csv`, ship it:
 `generate_embeddings.py --model … --min-similarity <v1's suggestion>`. The app refuses an index built
 with a different model (the backend ID includes the model version).
 
+## Two Macs
+
+The MacBook builds the app; the Mac mini holds the datasets and does training, evals, and the
+showcase. Git carries code and small text artifacts; `ml/shipped/` (what the app bundles) travels by
+rsync.
+
+**Mac mini, once:** clone the repo, install Xcode (same version as the MacBook; same macOS major
+version), `make ml-setup-train`, `mkdir ~/oplab-inbox`, then in System Settings → General → Sharing
+turn on **File Sharing** (add `~/oplab-inbox`) and **Remote Login**. Run `make mini-doctor` until it
+says "all set".
+
+**MacBook, once:** `cp ml/remote.env.example ml/remote.env`, set `MINI_HOST` (e.g.
+`murat@mac-mini.local`) and `MINI_REPO`, then `ssh-copy-id $MINI_HOST`.
+
+**Each labeling session:**
+1. iPhone → Files → Browse → ⋯ → Connect to Server → `smb://<mini>.local` → copy On My iPhone →
+   OnePieceAR → **Scans** into `oplab-inbox`.
+2. Mac mini: `make import-scans` (new scans + refreshed labels; originals move to
+   `oplab-inbox/imported/`), then `make status`.
+
+**Shipping to the app:** Mac mini `make ship-baseline` (the feature print as v0; fine-tuned models
+ship with `make ship` in the next phase) → MacBook `make pull-model` → rebuild in Xcode. `pull-model`
+refuses a shipment whose model and index disagree, and removes a stale model for a feature-print
+shipment. Single Mac? Set `MINI_HOST=local`.
+
+**Training from the MacBook:** `make train-remote NAME=v1` starts `make train NAME=v1` on the mini in
+tmux (`caffeinate` keeps it awake); attach with `ssh -t $MINI_HOST tmux attach -t train-v1`.
+
 ## Scripts
 
 | Script | Does |
 | --- | --- |
 | `fetch_cards.py` | OPTCG API -> roster JSON, art, full catalog |
-| `prepare_dataset.py` | `synth`, `negatives`, `import-scans`, `build-test`, `status`, `freeze-test` |
+| `prepare_dataset.py` | `synth`, `negatives`, `import-scans`, `import-inbox`, `build-test`, `status`, `freeze-test` |
 | `generate_embeddings.py` | reference index via `cardvision embed` (full catalog by default, `--scope roster` for roster only) |
 | `evaluate.py` | metrics via `cardvision match` on the manifest or a frozen test set (`--testset`), report, results history |
 | `train_embedding.py` | fine-tune an embedder on augmented card art |
 | `export_coreml.py` | checkpoint -> Core ML `CardEmbedder.mlpackage` |
+| `ship.py` | `stage` ml/shipped/ (baseline) |
+| `remote.py` | `pull-model`, `doctor`, `train-remote` |
 
 The code lives in `oplab/`, and the scripts are thin entry points. Everything under `datasets/`,
 `models/`, and `runs/` is gitignored. `results/results.csv` is tracked.
