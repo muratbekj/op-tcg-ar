@@ -119,14 +119,18 @@ def to_printing(row: dict, variant_id: str | None = None, embedding_row: int | N
     }
 
 
-def download_art(rows: list[dict], art_dir: Path, delay: float = 0.05) -> tuple[int, list[str]]:
-    """Downloads missing art as <printingId>.jpg. Returns (downloaded count, failed IDs)."""
+def download_art(rows: list[dict], art_dir: Path, delay: float = 0.05) -> tuple[int, int, list[str]]:
+    """Downloads missing art as <printingId>.jpg. Returns (downloaded, already present, failed IDs)."""
     art_dir.mkdir(parents=True, exist_ok=True)
     session = requests.Session()
-    downloaded, failed = 0, []
+    downloaded, present, failed = 0, 0, []
     for index, row in enumerate(rows, 1):
         target = art_dir / f"{row['card_image_id']}.jpg"
-        if target.exists() or not row.get("card_image"):
+        if target.exists():
+            present += 1
+            continue
+        if not row.get("card_image"):
+            failed.append(row["card_image_id"])
             continue
         for attempt in range(3):
             try:
@@ -142,4 +146,4 @@ def download_art(rows: list[dict], art_dir: Path, delay: float = 0.05) -> tuple[
         if index % 200 == 0:
             print(f"  art {index}/{len(rows)}")
         time.sleep(delay)
-    return downloaded, failed
+    return downloaded, present, failed

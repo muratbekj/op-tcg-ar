@@ -1,4 +1,4 @@
-"""Build data/cards/{cards,printings}.json from roster.json + the OPTCG API, and download art.
+"""Build data/cards/{catalog,cards,printings}.json from roster.json + the OPTCG API, and download art.
 
 roster.json is the hand-edited source of truth: which cards are in the app, their character, their
 default variant, and per-printing variant overrides. cards.json and printings.json are regenerated
@@ -36,6 +36,18 @@ def build_roster_data(rows: list[dict], roster: dict, previous_rows: dict[str, i
     return cards, printings, warnings
 
 
+def catalog_entries(rows: list[dict]) -> list[dict]:
+    """Every printing in the API, one entry each, sorted by printing ID so the file diffs cleanly."""
+    entries: dict[str, dict] = {}
+    for r in rows:
+        entries.setdefault(r["card_image_id"], {
+            "printingId": r["card_image_id"], "cardId": r["card_set_id"], "name": optcg.base_name(r["card_name"]),
+            "set": r["set_id"], "kind": optcg.printing_kind(r), "rarity": r.get("rarity") or "",
+            "artUrl": r.get("card_image"),
+        })
+    return [entries[key] for key in sorted(entries)]
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--refresh", action="store_true", help="re-download API data instead of using the cache")
@@ -49,12 +61,9 @@ def main(argv: list[str] | None = None) -> None:
     rows = optcg.fetch_rows(paths.API_CACHE, refresh=args.refresh)
     print(f"  {len(rows)} printings")
 
-    io.write_json(paths.FULL_CATALOG, [
-        {"printingId": r["card_image_id"], "cardId": r["card_set_id"], "name": optcg.base_name(r["card_name"]),
-         "set": r["set_id"], "kind": optcg.printing_kind(r), "rarity": r.get("rarity") or "",
-         "artUrl": r.get("card_image")}
-        for r in rows
-    ])
+    catalog = catalog_entries(rows)
+    io.write_json(paths.FULL_CATALOG, catalog)
+    print(f"  catalog: {len(catalog)} printings -> {paths.FULL_CATALOG.relative_to(paths.REPO)}")
 
     roster = io.read_json(paths.ROSTER)
     previous_path = paths.DATA_CARDS / "printings.json"
@@ -75,17 +84,23 @@ def main(argv: list[str] | None = None) -> None:
     roster_ids = {p["id"] for p in printings}
     if args.art != "none":
         wanted = rows if args.art == "all" else [r for r in rows if r["card_image_id"] in roster_ids]
-        downloaded, failed = optcg.download_art(wanted, paths.ART)
-        print(f"  art: {downloaded} downloaded, {len(failed)} failed {failed[:5] if failed else ''}")
+        downloaded, present, failed = optcg.download_art(wanted, paths.ART)
+        print(f"  art: {downloaded} downloaded, {present} already present, {len(failed)} failed"
+              f"{' ' + ', '.join(failed[:5]) if failed else ''} -> {paths.ART.relative_to(paths.REPO)}/")
 
+    installed = [p for p in sorted(roster_ids) if any(paths.APP_CARDS.glob(f"{p}.*"))]
     if args.install_art:
         paths.APP_CARDS.mkdir(parents=True, exist_ok=True)
         for printing_id in sorted(roster_ids):
             source = paths.ART / f"{printing_id}.jpg"
-            existing = list(paths.APP_CARDS.glob(f"{printing_id}.*"))
-            if source.exists() and not existing:
+            if source.exists() and printing_id not in installed:
                 shutil.copy(source, paths.APP_CARDS / source.name)
-                print(f"  installed {source.name}")
+                installed.append(printing_id)
+        print(f"  app art: {len(installed)}/{len(roster_ids)} roster printings in "
+              f"{paths.APP_CARDS.relative_to(paths.REPO)}/")
+    elif len(installed) < len(roster_ids):
+        print(f"  app art: {len(installed)}/{len(roster_ids)} roster printings bundled in the app; "
+              f"add --install-art to copy the rest (needed for card tracking in AR)")
 
 
 if __name__ == "__main__":

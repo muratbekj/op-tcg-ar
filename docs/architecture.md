@@ -8,7 +8,8 @@ apps/ios/
 ├── Info.plist                  only keys Xcode can't generate (UIFileSharingEnabled); the rest are build settings
 ├── Packages/OnePieceKit/       shared Swift package; `make test` runs it all on the Mac
 │   ├── OnePieceKit             Card, Printing, CharacterVariant, CardCatalog, EmbeddingIndex,
-│   │                           CardNumberParser, CandidateRanker (no ARKit/RealityKit/Vision)
+│   │                           CardNumberParser, FullCatalog (catalog.json), RecognitionCandidate
+│   │                           (RecognitionMethod, rankGroup, RecognitionDefaults); no ARKit/RealityKit/Vision
 │   ├── BattleKit               BattleEngine, Fighter, BattleRules
 │   ├── CardVision              CardDetector, EmbeddingEngine (feature print or Core ML), CardOCR,
 │   │                           VariantMatcher, CardRecognizer: the recognition pipeline
@@ -29,9 +30,9 @@ apps/ios/
 ## Data flow
 
 ```
-ARKit frame ──► CardDetector ──► EmbeddingEngine ──► VariantMatcher ──► CandidateRanker
- (scanning)     rectangle +       Vision feature     cosine top-k        OCR narrows
-                perspective fix   print               (vDSP)             (never decides)
+ARKit frame ──► CardDetector ──► CardOCR ──► FullCatalog ──► EmbeddingEngine + VariantMatcher
+ (scanning)     rectangle +       reads the   printings that  embedder ranks the group
+                perspective fix   card code   share the code   (no code: whole index, vision-only)
                                                                             │
       ┌─────────────────────────────────────────────────────────────────────┘
       ▼
@@ -69,6 +70,6 @@ ARKit frame ──► CardDetector ──► EmbeddingEngine ──► VariantMa
 | M1 AR + one character | Code done: anchoring, idle/attack/hit/victory, shadows, IBL, wander. Needs a real USDZ and a device test |
 | M2 character system | Done: variants, AssetService, CharacterSpawner, clip resolution |
 | M3 card system | Done: catalog, printing override, manual picker |
-| M4 recognition | Done on device: detection, feature-print match, OCR narrowing, "not this one?". Needs a device test |
+| M4 recognition | Done on device: detection, feature-print match, code-first recognition (OCR the code, then the embedder ranks its printings; vision-only fallback), "not this one?". Needs a device test |
 | M5 learning loop | Done: scan logs, dataset import, synthetic + negative test sets, evaluation with history, scans as extra references, fine-tuning + Core ML export. Needs real photos/scans |
 | M6 battle | Done: BattleKit rules + tests, two-card HUD with DON!! window |

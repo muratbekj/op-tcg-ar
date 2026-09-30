@@ -43,12 +43,15 @@ public struct PrintingEmbeddings: Sendable {
 
     public var printingCount: Int { Set(printingIDs.compactMap { $0 }).count }
 
-    /// Top-k printings, each at its best-matching row.
-    public func matches(for query: [Float], k: Int) -> [ArtMatch] {
+    /// Top-k printings, each at its best-matching row. `allowed` limits the search to those printings
+    /// (code-first recognition ranks only the printings that share the card's code).
+    public func matches(for query: [Float], k: Int, restrictedTo allowed: Set<String>? = nil) -> [ArtMatch] {
         var seen = Set<String>()
         var result: [ArtMatch] = []
         for hit in index.nearest(to: query, k: index.rowCount) {
-            guard let id = printingIDs[hit.row], seen.insert(id).inserted else { continue }
+            guard let id = printingIDs[hit.row] else { continue }
+            if let allowed, !allowed.contains(id) { continue }
+            guard seen.insert(id).inserted else { continue }
             result.append(ArtMatch(printingID: id, similarity: hit.similarity))
             if result.count == k { break }
         }
@@ -65,8 +68,9 @@ public struct EmbeddingIndexMetadata: Codable, Hashable, Sendable {
     public let dimension: Int
     /// Printing ID for each row, in file order. IDs may repeat.
     public let rows: [String]
-    /// Top matches below this are rejected (likely a card outside the roster). Chosen per backend
-    /// from `evaluate.py`'s rejection curve; `nil` means use `CandidateRanker.defaultMinimumSimilarity`.
+    /// Applies only to vision-only results (no catalog code was read): a top match below this is
+    /// treated as not a card and scanning continues. Chosen per backend
+    /// from `evaluate.py`'s rejection curve; `nil` means use `RecognitionDefaults.minimumSimilarity`.
     public let minimumSimilarity: Float?
 
     public init(backend: String, dimension: Int, rows: [String], minimumSimilarity: Float? = nil) {

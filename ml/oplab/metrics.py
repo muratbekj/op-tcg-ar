@@ -19,6 +19,7 @@ def summarize(
 ) -> dict:
     """
     truth[id] = {"printingId", "cardId", "tags": {...}}; `attributes(printingId)` gives set/rarity/kind.
+    Rows carry the recognition method; OCR accuracy is over detected rows (no read counts as wrong).
     `variant_of(printingId)` maps a printing to the character variant that would spawn, when known.
     """
     rows = []
@@ -38,11 +39,14 @@ def summarize(
             "top3": expected["printingId"] in top_ids(prediction, 3),
             "card": top is not None and top["cardId"] == expected["cardId"],
             "variant": (variant_of(predicted) == expected_variant) if expected_variant and predicted else None,
-            "similarity": top["similarity"] if top else None,
+            "similarity": top.get("similarity") if top else None,
             "ocr": prediction.get("ocrCardId"),
-            "ocr_correct": prediction.get("ocrCardId") == expected["cardId"] if prediction.get("ocrCardId") else None,
+            "method": prediction.get("method"),
+            "group_size": prediction.get("groupSize", 0),
+            "ocr_correct": prediction.get("ocrCardId") == expected["cardId"],
             "ms": prediction.get("ms"),
-            "tags": {**expected.get("tags", {}), **attributes(expected["printingId"])},
+            "tags": {**expected.get("tags", {}), **attributes(expected["printingId"]),
+                     "method": prediction.get("method") or "none"},
             "candidates": prediction.get("candidates", [])[:5],
         })
 
@@ -59,8 +63,9 @@ def summarize(
         "top1_given_detected": rate([r["top1"] for r in detected]),
         "card_top1": rate([r["card"] for r in rows]),
         "variant_top1": rate([r["variant"] for r in rows]),
-        "ocr_used": rate([r["ocr"] is not None for r in detected]),
-        "ocr_accuracy": rate([r["ocr_correct"] for r in rows]),
+        "ocr_used": rate([r["method"] not in (None, "vision-only") for r in detected]),
+        "ocr_accuracy": rate([r["ocr_correct"] for r in detected]),
+        "within_group": rate([r["top1"] for r in detected if r["method"] == "ocr+vision" and r["ocr_correct"]]),
         "median_ms": round(median(r["ms"] for r in rows if r["ms"] is not None), 1) if rows else None,
     }
     return {"summary": summary, "groups": group_metrics(rows, attributes), "hard_cases": hard_cases(rows), "rows": rows}
@@ -107,11 +112,17 @@ def hard_cases(rows: list[dict], limit: int = 50) -> list[dict]:
 def rejection_curve(positive_rows: list[dict], negative_predictions: list[dict],
                     thresholds: tuple[float, ...] = tuple(round(0.5 + 0.025 * i, 3) for i in range(19))) -> list[dict]:
     """For each minimum similarity: the share of test images still recognized correctly, and the
-    share of non-roster cards wrongly accepted as some roster printing."""
-    negatives = [p["candidates"][0]["similarity"] for p in negative_predictions if p.get("candidates")]
+    share of non-roster cards wrongly accepted as some roster printing. The threshold applies only to
+    vision-only results; anything recognized through OCR is never subject to it."""
+    negatives = []
+    for p in negative_predictions:
+        top = p["candidates"][0] if p.get("candidates") else None
+        if p.get("method") == "vision-only" and top and top.get("similarity") is not None:
+            negatives.append(top["similarity"])
     curve = []
     for threshold in thresholds:
-        kept = [r for r in positive_rows if r["top1"] and r["similarity"] is not None and r["similarity"] >= threshold]
+        kept = [r for r in positive_rows if r["top1"] and (
+            r.get("method") != "vision-only" or (r["similarity"] is not None and r["similarity"] >= threshold))]
         accepted = [s for s in negatives if s >= threshold]
         curve.append({
             "threshold": threshold,

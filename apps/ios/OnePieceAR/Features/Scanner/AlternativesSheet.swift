@@ -26,7 +26,14 @@ struct AlternativesSheet: View {
                         }
                     }
                     Section("Ranked by art similarity") {
-                        ForEach(recognition.result.candidates) { candidate in
+                        let inRoster = recognition.result.candidates.filter {
+                            model.catalog.printing(id: $0.printingID) != nil
+                        }
+                        if inRoster.isEmpty {
+                            Text("No other matches in this app's cards yet.")
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(inRoster) { candidate in
                             candidateRow(candidate, isCurrent: model.slots[recognition.slot]?.printing.id == candidate.printingID)
                         }
                     }
@@ -61,12 +68,14 @@ struct AlternativesSheet: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if candidate.matchesOCR {
+                if candidate.cardID == model.lastRecognition?.result.ocrCardID {
                     Image(systemName: "number").foregroundStyle(.blue).accessibilityLabel("Card number matches")
                 }
-                Text(candidate.similarity, format: .percent.precision(.fractionLength(0)))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                if let similarity = candidate.similarity {
+                    Text(similarity, format: .percent.precision(.fractionLength(0)))
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
                 if isCurrent {
                     Image(systemName: "checkmark").foregroundStyle(.tint)
                 }

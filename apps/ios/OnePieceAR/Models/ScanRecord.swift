@@ -5,7 +5,8 @@ import Foundation
 nonisolated struct ScanRecord: Codable, Sendable {
     struct Candidate: Codable, Sendable {
         let printingID: String
-        let similarity: Float
+        /// `nil` when the printing had no embedding score (single-printing code, or no reference row).
+        let similarity: Float?
         let matchesOCR: Bool
     }
 

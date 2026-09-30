@@ -87,4 +87,13 @@ import Testing
             #expect(catalog.variant(for: printing) != nil, "\(printing.id) has no variant")
         }
     }
+
+    @Test func repoCatalogCoversEveryRosterPrinting() throws {
+        let roster = try CardCatalog.load(from: Self.dataDirectory)
+        let full = try FullCatalog.load(from: Self.dataDirectory.appending(path: FullCatalog.fileName))
+        #expect(full.entries.count > 1000)
+        for printing in roster.printings {
+            #expect(full.entry(id: printing.id) != nil, "\(printing.id) missing from catalog.json")
+        }
+    }
 }

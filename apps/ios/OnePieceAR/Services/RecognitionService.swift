@@ -20,18 +20,18 @@ actor RecognitionService {
 
     var referenceSummary: String? { summary }
 
-    /// Uses the bundled `printings.f32` when its metadata says it was built with this device's
+    /// Uses the bundled `printings.f32` (the full catalog index) when its metadata says it was built with this device's
     /// embedding backend; otherwise computes references from bundled card art, so recognition
     /// works for the roster before the ML pipeline has produced anything.
     /// - Returns: `false` when there is nothing to match against.
     func prepare(
-        catalog: CardCatalog, bundledIndex: URL?, bundledMetadata: URL?, bundledModel: URL?,
+        catalog: CardCatalog, fullCatalog: FullCatalog, bundledIndex: URL?, bundledMetadata: URL?, bundledModel: URL?,
         cardArt: [(printingID: String, image: CGImage)]
     ) -> Bool {
         let engine = bundledModel.flatMap { try? EmbeddingEngine(compiledModelURL: $0) } ?? EmbeddingEngine()
 
         if let bundledIndex, let (embeddings, minimum) = loadIndex(bundledIndex, metadata: bundledMetadata, catalog: catalog, engine: engine) {
-            install(engine: engine, matcher: VariantMatcher(catalog: catalog, embeddings: embeddings, source: .bundledIndex),
+            install(engine: engine, matcher: VariantMatcher(catalog: fullCatalog, embeddings: embeddings, source: .bundledIndex),
                     minimumSimilarity: minimum)
             return true
         }
@@ -42,7 +42,7 @@ actor RecognitionService {
                 .map { (printingID: art.printingID, vector: $0) }
         }
         guard !computed.isEmpty, let embeddings = try? PrintingEmbeddings.build(from: computed) else { return false }
-        install(engine: engine, matcher: VariantMatcher(catalog: catalog, embeddings: embeddings, source: .computedFromCardArt),
+        install(engine: engine, matcher: VariantMatcher(catalog: fullCatalog, embeddings: embeddings, source: .computedFromCardArt),
                 minimumSimilarity: nil)
         return true
     }

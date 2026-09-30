@@ -61,6 +61,14 @@ import Testing
             try PrintingEmbeddings.load(from: url, metadata: wrong)
         }
     }
+
+    @Test func restrictedSearchOnlyReturnsAllowedPrintings() throws {
+        let index = try EmbeddingIndex(rows: [[1, 0, 0], [0.9, 0.1, 0], [0, 1, 0], [0.8, 0.2, 0]])
+        let embeddings = PrintingEmbeddings(index: index, printingIDs: ["A", "B", "C", "B"])
+        let hits = embeddings.matches(for: [1, 0, 0], k: 10, restrictedTo: ["B", "C", "Z"])
+        #expect(hits.map(\.printingID) == ["B", "C"])   // B once, at its best row; Z has no rows
+        #expect(embeddings.matches(for: [1, 0, 0], k: 1).map(\.printingID) == ["A"])
+    }
 }
 
 @Suite struct CardNumberParserTests {
@@ -82,28 +90,36 @@ import Testing
     }
 }
 
-@Suite struct CandidateRankerTests {
-    let catalog = CardCatalogTests.catalog
+@Suite struct RankGroupTests {
+    let group = ["OP05-119", "OP05-119_p1", "OP05-119_p2"].map { FullCatalogTests.entry($0) }
 
-    @Test func ocrOnlyReordersNeverDrops() {
-        let matches = [
-            ArtMatch(printingID: "OP06-118_p0", similarity: 0.83),
-            ArtMatch(printingID: "OP05-119_p1", similarity: 0.82),
-            ArtMatch(printingID: "OP05-119_p0", similarity: 0.60),
-        ]
-        let ranked = CandidateRanker.rank(matches, ocrCardID: "OP05-119", catalog: catalog)
-        #expect(ranked.map(\.printingID) == ["OP05-119_p1", "OP05-119_p0", "OP06-118_p0"])
+    @Test func rankGroupOrdersIndexedMembersBySimilarity() {
+        let ranked = RecognitionCandidate.rankGroup(group, matches: [
+            ArtMatch(printingID: "OP05-119_p2", similarity: 0.9), ArtMatch(printingID: "OP05-119", similarity: 0.7),
+            ArtMatch(printingID: "OP05-119_p1", similarity: 0.8),
+        ])
+        #expect(ranked.map(\.printingID) == ["OP05-119_p2", "OP05-119_p1", "OP05-119"])
+        #expect(ranked.allSatisfy { $0.cardID == "OP05-119" })
     }
 
-    @Test func unknownOCRKeepsArtOrder() {
-        let matches = [ArtMatch(printingID: "OP06-118_p0", similarity: 0.9), ArtMatch(printingID: "OP05-119_p0", similarity: 0.5)]
-        let ranked = CandidateRanker.rank(matches, ocrCardID: "OP01-001", catalog: catalog)
-        #expect(ranked.map(\.printingID) == ["OP06-118_p0", "OP05-119_p0"])
+    @Test func rankGroupAppendsUnindexedMembers() {
+        let ranked = RecognitionCandidate.rankGroup(group, matches: [ArtMatch(printingID: "OP05-119_p1", similarity: 0.8)])
+        #expect(ranked.map(\.printingID) == ["OP05-119_p1", "OP05-119", "OP05-119_p2"])
+        #expect(ranked.map(\.similarity) == [0.8, nil, nil])
     }
 
-    @Test func needsOCRWhenCloseOrWeak() {
-        #expect(CandidateRanker.needsOCR([ArtMatch(printingID: "a", similarity: 0.95), ArtMatch(printingID: "b", similarity: 0.93)]))
-        #expect(CandidateRanker.needsOCR([ArtMatch(printingID: "a", similarity: 0.5)]))
-        #expect(!CandidateRanker.needsOCR([ArtMatch(printingID: "a", similarity: 0.95), ArtMatch(printingID: "b", similarity: 0.7)]))
+    @Test func rankGroupWithNoIndexedMembers() {
+        let ranked = RecognitionCandidate.rankGroup(group, matches: [])
+        #expect(ranked.map(\.printingID) == group.map(\.printingId))
+        #expect(ranked.allSatisfy { $0.similarity == nil })
+    }
+
+    @Test func rankGroupIgnoresMatchesOutsideTheGroup() {
+        let ranked = RecognitionCandidate.rankGroup(group, matches: [ArtMatch(printingID: "OP06-118", similarity: 0.99)])
+        #expect(!ranked.map(\.printingID).contains("OP06-118") && ranked.count == 3)
+    }
+
+    @Test func methodRawValues() {
+        #expect([RecognitionMethod.ocrUnique, .ocrVision, .visionOnly].map(\.rawValue) == ["ocr-unique", "ocr+vision", "vision-only"])
     }
 }

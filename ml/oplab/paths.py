@@ -10,6 +10,7 @@ ROSTER = DATA_CARDS / "roster.json"
 ART = DATA_CARDS / "art"  # API art, gitignored
 INDEX = DATA_CARDS / "printings.f32"
 INDEX_META = DATA_CARDS / "printings.meta.json"
+FULL_CATALOG = DATA_CARDS / "catalog.json"  # every printing in the API (tracked; bundled into the app)
 
 APP_RESOURCES = REPO / "apps" / "ios" / "OnePieceAR" / "Resources"
 APP_CARDS = APP_RESOURCES / "Cards"  # art bundled in the app (API art or your own clean scans)
@@ -24,7 +25,6 @@ PHOTOS = RAW / "photos"  # your own photos: photos/<printingId>/[<condition>/]*.
 SYNTH = RAW / "synth"
 NEGATIVES = RAW / "negatives"
 PROCESSED = DATASETS / "processed"
-FULL_CATALOG = PROCESSED / "catalog_full.json"
 REFERENCES = DATASETS / "references"
 TEST = DATASETS / "test"
 TEST_MANIFEST = TEST / "manifest.json"

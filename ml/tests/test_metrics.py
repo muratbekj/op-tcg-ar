@@ -1,9 +1,9 @@
 from oplab import metrics
 
 
-def prediction(id, *printing_ids, detected=True, ocr=None):
-    return {"id": id, "detected": detected, "ocrCardId": ocr, "ms": 10.0,
-            "candidates": [{"printingId": p, "cardId": p.split("_")[0], "similarity": 0.9 - i * 0.1, "matchesOCR": False}
+def prediction(id, *printing_ids, detected=True, ocr=None, method="vision-only", group_size=0):
+    return {"id": id, "detected": detected, "ocrCardId": ocr, "ms": 10.0, "method": method, "groupSize": group_size,
+            "candidates": [{"printingId": p, "cardId": p.split("_")[0], "similarity": 0.9 - i * 0.1}
                            for i, p in enumerate(printing_ids)]}
 
 
@@ -41,17 +41,68 @@ def test_groups_have_precision_for_printing_attributes_only():
 
 def test_hard_cases_most_confident_first():
     predictions = [prediction("q1", "B"), {**prediction("q2", "B"), "candidates": [
-        {"printingId": "B", "cardId": "B", "similarity": 0.99, "matchesOCR": False}]}]
+        {"printingId": "B", "cardId": "B", "similarity": 0.99}]}]
     gt = {**truth("q1", "A"), **truth("q2", "A")}
     cases = metrics.summarize(predictions, gt, lambda p: ATTRS[p])["hard_cases"]
     assert [c["id"] for c in cases] == ["q2", "q1"]
 
 
+def test_method_metrics():
+    predictions = [
+        prediction("q1", "A_p1", "A", ocr="A", method="ocr+vision", group_size=2),   # right code, right printing
+        prediction("q2", "A", "A_p1", ocr="A", method="ocr+vision", group_size=2),   # right code, wrong printing
+        prediction("q3", "B", ocr="B", method="ocr-unique", group_size=1),
+        prediction("q4", "B", method="vision-only"),                                  # OCR read nothing
+    ]
+    gt = {**truth("q1", "A_p1"), **truth("q2", "A_p1"), **truth("q3", "B"), **truth("q4", "B")}
+    result = metrics.summarize(predictions, gt, lambda p: ATTRS[p])
+    s = result["summary"]
+    assert s["ocr_accuracy"] == 0.75
+    assert s["within_group"] == 0.5
+    assert s["ocr_used"] == 0.75
+    assert result["groups"]["method"]["ocr+vision"] == {"n": 2, "recall": 0.5}
+    assert result["groups"]["method"]["vision-only"]["recall"] == 1.0
+
+
+def test_ocr_misread_counts_against_ocr_accuracy():
+    # OCR read a real but wrong code: confidently wrong group. It must show up, not hide.
+    predictions = [prediction("q1", "B", ocr="B", method="ocr-unique", group_size=1)]
+    result = metrics.summarize(predictions, truth("q1", "A"), lambda p: ATTRS[p])
+    assert result["summary"]["ocr_accuracy"] == 0.0
+    assert result["summary"]["within_group"] is None
+    assert [c["id"] for c in result["hard_cases"]] == ["q1"]
+
+
+def test_missing_similarity_is_tolerated():
+    p = prediction("q1", "B", ocr="B", method="ocr-unique", group_size=1)
+    del p["candidates"][0]["similarity"]   # the CLI omits nil similarities
+    result = metrics.summarize([p], truth("q1", "B"), lambda x: ATTRS[x])
+    assert result["summary"]["top1"] == 1.0 and result["rows"][0]["similarity"] is None
+
+
 def test_rejection_curve_and_threshold():
-    rows = [{"top1": True, "similarity": 0.9}, {"top1": True, "similarity": 0.7}, {"top1": False, "similarity": 0.95}]
-    negatives = [{"candidates": [{"similarity": s}]} for s in (0.6, 0.65, 0.8)] + [{"candidates": []}]
+    rows = [{"top1": True, "similarity": 0.9, "method": "vision-only"},
+            {"top1": True, "similarity": 0.7, "method": "vision-only"},
+            {"top1": False, "similarity": 0.95, "method": "vision-only"}]
+    negatives = [{"method": "vision-only", "candidates": [{"similarity": s}]} for s in (0.6, 0.65, 0.8)] \
+        + [{"candidates": []}]
     curve = metrics.rejection_curve(rows, negatives, thresholds=(0.6, 0.75, 0.85))
     assert curve[0] == {"threshold": 0.6, "correct_kept": round(2 / 3, 4), "false_accept": 0.75}
     assert curve[1] == {"threshold": 0.75, "correct_kept": round(1 / 3, 4), "false_accept": 0.25}
     assert curve[2]["false_accept"] == 0.0
     assert metrics.suggest_threshold(curve, max_false_accept=0.25) == 0.75
+
+
+def test_rejection_curve_only_thresholds_vision_only():
+    rows = [
+        {"top1": True, "similarity": None, "method": "ocr-unique"},   # always kept
+        {"top1": True, "similarity": 0.55, "method": "vision-only"},  # dropped at 0.7
+        {"top1": True, "similarity": 0.9, "method": "vision-only"},   # kept
+    ]
+    negatives = [
+        {"method": "ocr-unique", "candidates": [{"printingId": "X", "cardId": "X"}]},  # no similarity key
+        {"method": "vision-only", "candidates": [{"similarity": 0.8}]},                # counted
+        {"method": "vision-only", "candidates": [{"similarity": 0.6}]},                # below threshold
+    ]
+    curve = metrics.rejection_curve(rows, negatives, thresholds=(0.7,))
+    assert curve == [{"threshold": 0.7, "correct_kept": round(2 / 3, 4), "false_accept": round(1 / 3, 4)}]

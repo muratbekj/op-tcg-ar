@@ -22,7 +22,9 @@ actor ScanLogger {
             id: id,
             date: .now,
             ocrCardID: result.ocrCardID,
-            candidates: result.candidates.map { .init(printingID: $0.printingID, similarity: $0.similarity, matchesOCR: $0.matchesOCR) },
+            candidates: result.candidates.map {
+                .init(printingID: $0.printingID, similarity: $0.similarity, matchesOCR: $0.cardID == result.ocrCardID)
+            },
             spawnedPrintingID: spawnedPrintingID,
             finalPrintingID: spawnedPrintingID,
             corrected: false)
