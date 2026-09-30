@@ -1,13 +1,16 @@
 """Generate reference embeddings with the device's own pipeline (via the `cardvision` CLI).
 
-Roster index (default) -> data/cards/printings.f32 + printings.meta.json, bundled into the app.
+Full-catalog index (default) -> data/cards/printings.f32 + printings.meta.json, bundled into the app.
+Every card in the catalog, plus the roster's own clean art (app's Resources/Cards/<id>.*).
 Each printing can have several reference rows:
 - API art (data/cards/art/<id>.jpg), which carries a SAMPLE watermark
 - your own clean scan in the app's Resources/Cards/<id>.* (if it differs from the API art)
 - with --with-scans: confirmed device scans from the reference split (the learning loop)
+Identical images are embedded once (deduplicated by content digest).
+Needs ~1.4 GB: run fetch_cards.py --art all first.
 
-Full index (--scope full) -> ml/datasets/references/full.f32: every downloaded printing, used to
-evaluate against thousands of distractors instead of just the roster.
+Roster-only index (--scope roster) -> ml/datasets/references/roster.f32: roster printings only,
+for development and testing.
 """
 
 import argparse
@@ -46,12 +49,17 @@ def roster_references(with_scans: str) -> list[dict]:
     return entries
 
 
-def full_references() -> list[dict]:
-    return [
-        {"printingId": p["printingId"], "path": str(paths.ART / f"{p['printingId']}.jpg"), "source": "api"}
-        for p in io.read_json(paths.FULL_CATALOG)
-        if (paths.ART / f"{p['printingId']}.jpg").exists()
-    ]
+def full_references(with_scans: str = "none") -> list[dict]:
+    """Roster references first (they may include your own clean art and scans), then the API art of
+    every other catalog printing. Identical images are embedded once."""
+    entries = roster_references(with_scans)
+    seen = {_digest(Path(e["path"])) for e in entries}
+    for printing in io.read_json(paths.FULL_CATALOG):
+        art = paths.ART / f"{printing['printingId']}.jpg"
+        if art.exists() and (digest := _digest(art)) not in seen:
+            seen.add(digest)
+            entries.append({"printingId": printing["printingId"], "path": str(art), "source": "api"})
+    return entries
 
 
 def update_embedding_rows(meta: dict) -> None:
@@ -68,9 +76,10 @@ def update_embedding_rows(meta: dict) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--scope", choices=["roster", "full"], default="roster")
+    parser.add_argument("--scope", choices=["roster", "full"], default="full",
+                        help="full (default): every catalog printing, bundled into the app; roster: roster printings only")
     parser.add_argument("--with-scans", choices=["none", "corrected", "all"], default="none",
-                        help="add device scans from the reference split as extra rows (roster scope)")
+                        help="add device scans from the reference split as extra rows")
     parser.add_argument("--model", type=Path, help="Core ML embedder (.mlpackage); default is the Vision feature print")
     parser.add_argument("--out", type=Path, help="output .f32 (default depends on scope)")
     parser.add_argument("--min-similarity", type=float,
@@ -80,12 +89,12 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.scope == "roster":
         entries = roster_references(args.with_scans)
-        out = args.out or paths.INDEX
+        out = args.out or paths.REFERENCES / "roster.f32"
     else:
-        entries = full_references()
-        out = args.out or paths.REFERENCES / "full.f32"
+        entries = full_references(args.with_scans)
+        out = args.out or paths.INDEX
     if not entries:
-        raise SystemExit("no reference images found; run fetch_cards.py first")
+        raise SystemExit("no reference images found; run fetch_cards.py --art all first")
 
     sources: dict[str, int] = {}
     for entry in entries:
@@ -95,7 +104,7 @@ def main(argv: list[str] | None = None) -> None:
                             args.min_similarity)
     print(f"  {info['rows']} rows × {info['dimension']} ({info['backend']}) -> {out}")
 
-    if args.scope == "roster" and out == paths.INDEX:
+    if out == paths.INDEX:
         update_embedding_rows(io.read_json(cardvision.meta_path(out)))
 
 
