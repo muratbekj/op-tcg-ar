@@ -70,3 +70,28 @@ def test_status_lines():
         "test pool for test-v2: 1/200 scans across 1/30 printings",
         "frozen: test-v1 (2026-10-01, 1 scans, 1 printings)",
     ]
+
+
+FROZEN = {"name": "test-v1", "version": 1, "frozen": "2026-10-01",
+          "scans": [{"scanId": "a", "printingId": "OP09-078-r1"}, {"scanId": "b", "printingId": "OP01-003"}],
+          "printings": ["OP01-003", "OP09-078-r1"]}
+
+
+def make_crops(root, *scan_ids):
+    for scan_id in scan_ids:
+        (root / scan_id).mkdir(parents=True)
+        (root / scan_id / "crop.jpg").write_bytes(b"jpeg")
+
+
+def test_testset_entries_use_frozen_truth(tmp_path):
+    make_crops(tmp_path, "a", "b")
+    rows = testsets.entries(FROZEN, tmp_path, card_ids={"OP09-078-r1": "OP09-078"})
+    assert rows[0] == {"id": "scan:a", "path": str(tmp_path / "a" / "crop.jpg"), "printingId": "OP09-078-r1",
+                       "cardId": "OP09-078", "mode": "card", "tags": {"source": "scan", "testset": "test-v1"}}
+    assert rows[1]["printingId"] == "OP01-003" and rows[1]["cardId"] == "OP01-003"
+
+
+def test_testset_entries_fail_on_missing_crops(tmp_path):
+    make_crops(tmp_path, "a")
+    with pytest.raises(testsets.MissingScans, match="1 of 2 scans in test-v1 have no crop.*b"):
+        testsets.entries(FROZEN, tmp_path)

@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from . import cardvision, dataset, io, metrics, paths
+from . import cardvision, dataset, io, metrics, paths, testsets
 
 RESULT_COLUMNS = ["timestamp", "name", "backend", "index", "index_printings", "sources", "ocr", "n", "skipped",
                   "detection", "top1", "top3", "top1_given_detected", "card_top1", "variant_top1",
@@ -38,7 +38,7 @@ def variant_lookup() -> dict[str, str]:
     }
 
 
-def render_report(name: str, meta: dict, result: dict, skipped: int) -> str:
+def render_report(name: str, meta: dict, result: dict, skipped: int, testset: str = "") -> str:
     s = result["summary"]
     pct = lambda v: "–" if v is None else f"{v * 100:.1f}%"
     def with_ci(value, ci):
@@ -49,7 +49,8 @@ def render_report(name: str, meta: dict, result: dict, skipped: int) -> str:
     lines = [
         f"# Recognition eval: {name}", "",
         f"Backend `{meta['backend']}`, {len(set(meta['rows']))} printings in index ({len(meta['rows'])} rows). "
-        f"{s['n']} test images; {skipped} skipped because their printing isn't in the index.", "",
+        f"{s['n']} test images; {skipped} skipped because their printing isn't in the index."
+        + (f" Test set `{testset}`." if testset else ""), "",
         "| Metric | Value |", "| --- | --- |",
         f"| Detection | {with_ci(s['detection'], s.get('detection_ci'))} |",
         f"| Top-1 printing | {with_ci(s['top1'], s.get('top1_ci'))} |",
@@ -132,17 +133,28 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--name", default="baseline", help="label for this run in results.csv")
     parser.add_argument("--index", type=Path, default=paths.INDEX)
     parser.add_argument("--model", type=Path, help="Core ML embedder; must match the index backend")
-    parser.add_argument("--source", action="append", choices=["photo", "synth", "scan", "negative"],
+    parser.add_argument("--source", action="append", choices=["photo", "synth", "negative"],
                         help="restrict to these sources (repeatable); default all")
+    parser.add_argument("--testset", help="score a frozen real-scan test set (test-vN or 'latest') instead of the "
+                        "synthetic/photo manifest")
     parser.add_argument("--no-ocr", action="store_true")
     parser.add_argument("--limit", type=int, help="evaluate only the first N images (quick checks)")
     args = parser.parse_args(argv)
 
-    if not paths.TEST_MANIFEST.exists():
-        raise SystemExit("no test set; run prepare_dataset.py build-test first")
     meta = io.read_json(cardvision.meta_path(args.index))
     indexed = set(meta["rows"])
-    entries = io.read_json(paths.TEST_MANIFEST)
+    testset_name = ""
+    if args.testset:
+        try:
+            testset = testsets.load(args.testset)
+            entries = testsets.entries(testset, card_ids=dataset.catalog_card_ids())
+        except (FileNotFoundError, testsets.MissingScans) as error:
+            raise SystemExit(str(error))
+        testset_name = testset["name"]
+    else:
+        if not paths.TEST_MANIFEST.exists():
+            raise SystemExit("no test set; run prepare_dataset.py build-test first")
+        entries = io.read_json(paths.TEST_MANIFEST)
     if args.source:
         entries = [e for e in entries if e["tags"]["source"] in args.source]
     catalog_positives, negatives = split_negatives(
@@ -180,11 +192,11 @@ def main(argv: list[str] | None = None) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "predictions.jsonl").write_text("".join(json.dumps(p) + "\n" for p in predictions))
     io.write_json(run_dir / "metrics.json", {k: result[k] for k in ("summary", "groups", "hard_cases", "rejection")})
-    report = render_report(args.name, meta, result, skipped)
+    report = render_report(args.name, meta, result, skipped, testset=testset_name)
     (run_dir / "report.md").write_text(report)
 
     append_result({
-        "timestamp": stamp, "name": args.name, "backend": meta["backend"],
+        "timestamp": stamp, "name": args.name, "testset": testset_name, "backend": meta["backend"],
         "index": args.index.name, "index_printings": len(indexed),
         "sources": "+".join(sorted({e["tags"]["source"] for e in in_index})),
         "ocr": not args.no_ocr, "skipped": skipped, **result["summary"],

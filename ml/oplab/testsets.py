@@ -10,13 +10,17 @@ model is compared on the same frozen set, so its history stays comparable.
 from datetime import date
 from pathlib import Path
 
-from . import io, paths
+from . import dataset, io, paths
 
 MIN_SCANS = 200
 MIN_PRINTINGS = 30
 
 
 class FreezeError(Exception):
+    pass
+
+
+class MissingScans(Exception):
     pass
 
 
@@ -89,3 +93,20 @@ def status_lines(all_records: list[dict], sets: list[dict], min_scans: int = MIN
     for s in sets:
         lines.append(f"frozen: {s['name']} ({s['frozen']}, {len(s['scans'])} scans, {len(s['printings'])} printings)")
     return lines
+
+
+def entries(testset: dict, scans_dir: Path = paths.SCANS, card_ids: dict[str, str] | None = None) -> list[dict]:
+    """Eval entries for a frozen set: each scan's crop with the printing frozen as its truth.
+    Refuses when any crop is missing, so a partial import can't quietly shrink the test set."""
+    missing = [s["scanId"] for s in testset["scans"] if not (scans_dir / s["scanId"] / "crop.jpg").exists()]
+    if missing:
+        raise MissingScans(f"{len(missing)} of {len(testset['scans'])} scans in {testset['name']} have no crop in "
+                           f"{scans_dir}: {', '.join(missing[:10])}{' …' if len(missing) > 10 else ''}")
+    return [{
+        "id": f"scan:{s['scanId']}",
+        "path": str(scans_dir / s["scanId"] / "crop.jpg"),
+        "printingId": s["printingId"],
+        "cardId": dataset.card_id_of(s["printingId"], card_ids),
+        "mode": "card",
+        "tags": {"source": "scan", "testset": testset["name"]},
+    } for s in testset["scans"]]
