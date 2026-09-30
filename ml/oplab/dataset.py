@@ -99,7 +99,10 @@ def _import_folder(folder: Path, scans_dir: Path) -> str:
     target = scans_dir / folder.name
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(folder, target)
+        partial = target.with_name(target.name + ".partial")  # an interrupted copy never looks imported
+        shutil.rmtree(partial, ignore_errors=True)
+        shutil.copytree(folder, partial)
+        partial.rename(target)
         return "new"
     if not (target / "scan.json").exists() or record.read_bytes() != (target / "scan.json").read_bytes():
         shutil.copy2(record, target / "scan.json")
@@ -134,19 +137,23 @@ def import_inbox(inbox: Path = paths.INBOX, scans_dir: Path = paths.SCANS, stamp
     archive = inbox / "imported" / stamp
     counts = {"new": 0, "updated": 0, "same": 0}
     skipped = []
-    folders = sorted({p.parent for p in inbox.rglob("scan.json") if p.relative_to(inbox).parts[0] != "imported"})
-    for folder in folders:
+    folders = {p.parent for p in inbox.rglob("scan.json") if p.relative_to(inbox).parts[0] != "imported"}
+    # Oldest scan.json first, so when a scan ID is present twice the newest copy is applied last and wins.
+    for folder in sorted(folders, key=lambda f: ((f / "scan.json").stat().st_mtime_ns, str(f))):
+        if folder == inbox:
+            skipped.append(".")
+            continue
         result = _import_folder(folder, scans_dir)
         if result == "skipped":
             skipped.append(str(folder.relative_to(inbox)))
             continue
         counts[result] += 1
-        target = archive / folder.name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            shutil.rmtree(folder)
-        else:
-            shutil.move(str(folder), target)
+        archive.mkdir(parents=True, exist_ok=True)
+        target, n = archive / folder.name, 1
+        while target.exists():  # never delete an inbox folder: duplicates get -2, -3, ...
+            n += 1
+            target = archive / f"{folder.name}-{n}"
+        shutil.move(str(folder), target)
     for directory in sorted((p for p in inbox.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
         if directory.relative_to(inbox).parts[0] == "imported":
             continue
