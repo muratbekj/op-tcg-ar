@@ -75,6 +75,12 @@ final class ARSessionManager: NSObject {
 
     // MARK: Hit testing
 
+    /// Maps normalized camera-sensor coordinates (landscape, origin top-left) to normalized view
+    /// coordinates for the portrait UI. `nil` before the first frame.
+    func displayTransform(viewportSize: CGSize) -> CGAffineTransform? {
+        arView.session.currentFrame?.displayTransform(for: .portrait, viewportSize: viewportSize)
+    }
+
     /// World transform of the horizontal surface under a screen point.
     func raycastSurface(at point: CGPoint) -> simd_float4x4? {
         arView.raycast(from: point, allowing: .estimatedPlane, alignment: .horizontal).first?.worldTransform

@@ -24,13 +24,18 @@ Everything here is unit-tested on the Mac, including real Vision detection on sy
    - No code: embed both orientations, search the whole index, and keep the better orientation's
      top 5 (`vision-only`). Below the index's `minimumSimilarity` (default 0.80), the frame is
      rejected and scanning continues. The threshold never applies when a catalog code was read.
-6. **Spawn or show.** A roster printing spawns its character right away, and "Not this one?" lists
-   the candidates. Other printings are identified but not spawned yet (the info panel is Phase 2).
+6. **Spawn or show.** A roster printing spawns its character right away; any other printing shows a
+   card-info panel (name, code, set, kind, rarity). Either way a strip reads "OP05-119 · 4 printings"
+   (or "Matched by art · 5 candidates") with the pick; ✓ confirms it, and tapping the strip opens the
+   group list, where any row can be chosen instead ("None of these" opens the manual picker).
+   Thumbnails there load on demand from the printing's art URL and are cached; offline, rows are text only.
 7. **Track.** An `ARReferenceImage` (0.063 m wide) is built from the bundled art, or from the
    scanned crop if there's no art. Poses are low-pass filtered in `CardAnchor` (Settings >
    Anchor smoothing).
 
-Frames are sampled every 0.35 s, and only while scanning.
+Frames are sampled every 0.35 s, and only while scanning. Settings > Show recognition debug draws the
+detected card outline live while scanning (yellow: found, no match; green: recognized) and lists the
+OCR read, method, and top similarities.
 
 ## Embedding contract (`printings.f32` + `printings.meta.json`)
 
@@ -73,7 +78,5 @@ The code-first results are in `ml/results/results.csv`, with the `ocr_accuracy` 
 ## Scan logs (learning loop input)
 
 With Settings > Log scans enabled (the default), every recognized scan writes
-`Documents/Scans/<yyyyMMdd-HHmmss_id>/crop.jpg` and `scan.json` (`ScanRecord`). The JSON holds
-the ranked candidates with similarities, the OCR read, the spawned printing, the final printing,
-and `corrected`. Copy the folder to the Mac through Finder (iPhone > Files > OnePieceAR) or the
+`Documents/Scans/<yyyyMMdd-HHmmss_id>/crop.jpg` and `scan.json` (`ScanRecord`). The JSON holds the ranked candidates with similarities, the OCR read, `method` and `groupSize`, the first guess (`spawnedPrintingID`), the final printing, and `label`: `confirmed` (✓ or re-choosing the first guess), `corrected` (another printing chosen), or `none` (no answer). `corrected` is kept as a boolean for older readers. Only labeled scans are meant for training and testing. Copy the folder to the Mac through Finder (iPhone > Files > OnePieceAR) or the
 Files app.

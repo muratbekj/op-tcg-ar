@@ -9,6 +9,9 @@ struct CatalogThumbnail: View {
 
     var body: some View {
         CardArtThumbnail(image: image)
-            .task(id: printingID) { image = await model.thumbnail(for: printingID) }
+            .task(id: printingID) {
+                image = nil
+                image = await model.thumbnail(for: printingID)
+            }
     }
 }
