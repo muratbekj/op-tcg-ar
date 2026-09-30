@@ -15,6 +15,7 @@ on both sides. Test scans are scored through frozen test sets (`testsets.py`), n
 import argparse
 import hashlib
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -84,6 +85,28 @@ def train_records(scans_dir: Path = paths.SCANS, testsets_dir: Path = paths.TEST
     return [r for r in scan_records(scans_dir) if r["split"] == "train" and r["scanId"] not in frozen]
 
 
+def _import_folder(folder: Path, scans_dir: Path) -> str:
+    """Imports one scan folder: "new", "updated" (scan.json refreshed), "same", or "skipped" (no
+    crop.jpg, or an unreadable or incomplete scan.json; nothing is touched)."""
+    record = folder / "scan.json"
+    try:
+        data = io.read_json(record)
+        data["id"], data["finalPrintingID"]
+    except (ValueError, KeyError, TypeError, OSError):
+        return "skipped"
+    if not (folder / "crop.jpg").exists():
+        return "skipped"
+    target = scans_dir / folder.name
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(folder, target)
+        return "new"
+    if not (target / "scan.json").exists() or record.read_bytes() != (target / "scan.json").read_bytes():
+        shutil.copy2(record, target / "scan.json")
+        return "updated"
+    return "same"
+
+
 def import_scans(source: Path, scans_dir: Path = paths.SCANS) -> dict:
     """Copies new scan folders from an exported Scans folder and refreshes scan.json of already
     imported ones (a scan can be confirmed or corrected on the phone after an earlier export).
@@ -92,25 +115,46 @@ def import_scans(source: Path, scans_dir: Path = paths.SCANS) -> dict:
     skipped, reported, and left where they are; an existing imported copy is never overwritten by one."""
     new, updated, skipped = 0, 0, []
     for record in sorted(source.glob("*/scan.json")):
-        folder = record.parent
-        try:
-            data = io.read_json(record)
-            data["id"], data["finalPrintingID"]
-        except (ValueError, KeyError, TypeError):
-            skipped.append(folder.name)
-            continue
-        if not (folder / "crop.jpg").exists():
-            skipped.append(folder.name)
-            continue
-        target = scans_dir / folder.name
-        if not target.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(folder, target)
+        result = _import_folder(record.parent, scans_dir)
+        if result == "skipped":
+            skipped.append(record.parent.name)
+        elif result == "new":
             new += 1
-        elif not (target / "scan.json").exists() or record.read_bytes() != (target / "scan.json").read_bytes():
-            shutil.copy2(record, target / "scan.json")
+        elif result == "updated":
             updated += 1
     return {"new": new, "updated": updated, "skipped": skipped}
+
+
+def import_inbox(inbox: Path = paths.INBOX, scans_dir: Path = paths.SCANS, stamp: str | None = None) -> dict:
+    """Mac mini: imports every scan folder copied anywhere into the SMB inbox (the phone's whole Scans
+    folder, or loose scan folders), then archives each imported or already-known folder under
+    inbox/imported/<stamp>/ so the inbox only ever holds what's new. Malformed folders stay put and
+    are reported. Folders emptied by the move are removed (a leftover .DS_Store doesn't count)."""
+    stamp = stamp or datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive = inbox / "imported" / stamp
+    counts = {"new": 0, "updated": 0, "same": 0}
+    skipped = []
+    folders = sorted({p.parent for p in inbox.rglob("scan.json") if p.relative_to(inbox).parts[0] != "imported"})
+    for folder in folders:
+        result = _import_folder(folder, scans_dir)
+        if result == "skipped":
+            skipped.append(str(folder.relative_to(inbox)))
+            continue
+        counts[result] += 1
+        target = archive / folder.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            shutil.rmtree(folder)
+        else:
+            shutil.move(str(folder), target)
+    for directory in sorted((p for p in inbox.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        if directory.relative_to(inbox).parts[0] == "imported":
+            continue
+        leftovers = [p for p in directory.iterdir() if p.name != ".DS_Store"]
+        if not leftovers:
+            shutil.rmtree(directory)
+    archived = str(archive) if any(counts.values()) else None
+    return {**counts, "skipped": skipped, "archived": archived}
 
 
 def generate_synth(printing_ids: list[str], per_printing: int, seed: int) -> int:
@@ -229,6 +273,8 @@ def main(argv: list[str] | None = None) -> None:
     neg = sub.add_parser("negatives", help="render photos of random non-roster cards (downloads their art)")
     neg.add_argument("--count", type=int, default=150)
     neg.add_argument("--seed", type=int, default=0)
+    inbox = sub.add_parser("import-inbox", help="Mac mini: import everything copied into ~/oplab-inbox and archive it")
+    inbox.add_argument("--inbox", type=Path, default=paths.INBOX)
     sub.add_parser("build-test", help="assemble datasets/test/manifest.json")
     sub.add_parser("status", help="labels, split, and test-set freeze progress")
     sub.add_parser("freeze-test", help="freeze the next real-scan test set once the pool is big enough")
@@ -242,6 +288,16 @@ def main(argv: list[str] | None = None) -> None:
                   f"{', '.join(result['skipped'][:10])}")
         if not any(args.source.glob("*/scan.json")):
             print(f"  no <scanId>/scan.json found under {args.source}; the source should be the Scans folder itself")
+    elif args.command == "import-inbox":
+        if not args.inbox.exists():
+            raise SystemExit(f"no inbox at {args.inbox}; create it and share it over SMB (make mini-doctor)")
+        result = import_inbox(args.inbox)
+        print(f"imported {result['new']} new scans, refreshed {result['updated']} labels, "
+              f"{result['same']} already known")
+        if result["archived"]:
+            print(f"  originals moved to {result['archived']}")
+        if result["skipped"]:
+            print(f"  left in the inbox (no crop.jpg or unreadable scan.json): {', '.join(result['skipped'][:10])}")
     elif args.command == "synth":
         if args.scope == "roster":
             ids = [p["id"] for p in io.read_json(paths.DATA_CARDS / "printings.json")]
@@ -263,6 +319,9 @@ def main(argv: list[str] | None = None) -> None:
             print(line)
         if indexed is None:
             print("index missing: can't tell which scans are freezable (build it: generate_embeddings.py)")
+        from . import shipped
+
+        print(shipped.status_line(len(scan_records())))
     elif args.command == "freeze-test":
         indexed = index_printings()
         if indexed is None:

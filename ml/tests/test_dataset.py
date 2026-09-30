@@ -131,3 +131,34 @@ def test_train_records_exclude_frozen_scans_relabeled_to_train(tmp_path):
         "name": "test-v1", "version": 1, "frozen": "2026-10-01", "printings": ["OP01-003"],
         "scans": [{"scanId": "frozen", "printingId": "OP01-003", "label": "confirmed", "method": None}]}))
     assert [r["scanId"] for r in dataset.train_records(scans, sets)] == ["fresh"]
+
+
+def test_import_inbox_handles_nested_scans_folder_and_known_scans(tmp_path):
+    inbox, lab = tmp_path / "inbox", tmp_path / "lab"
+    write_scan(inbox / "Scans", "s1", label="confirmed")               # the phone's whole Scans folder
+    write_scan(inbox / "Scans", "s2", label="none")
+    write_scan(inbox, "s3", label="corrected", corrected=True)         # a loose scan folder
+    write_scan(inbox / "Scans", "bad", label="confirmed", crop=False)  # malformed: stays in the inbox
+    (inbox / "Scans" / ".DS_Store").write_bytes(b"")
+    result = dataset.import_inbox(inbox, lab, stamp="20261001-120000")
+    assert result == {"new": 3, "updated": 0, "same": 0, "skipped": ["Scans/bad"],
+                      "archived": str(inbox / "imported" / "20261001-120000")}
+    assert sorted(p.name for p in lab.iterdir()) == ["s1", "s2", "s3"]
+    assert sorted(p.name for p in (inbox / "imported" / "20261001-120000").iterdir()) == ["s1", "s2", "s3"]
+    assert (inbox / "Scans" / "bad" / "scan.json").exists() and not (inbox / "s3").exists()
+
+    # Next session: the phone's Scans folder is copied again (s1 relabeled on the phone, s2 unchanged).
+    write_scan(inbox / "Scans", "s1", label="corrected", corrected=True)
+    write_scan(inbox / "Scans", "s2", label="none")
+    again = dataset.import_inbox(inbox, lab, stamp="20261002-090000")
+    assert (again["new"], again["updated"], again["same"]) == (0, 1, 1)
+    assert dataset.scan_label(json.loads((lab / "s1" / "scan.json").read_text())) == "corrected"
+    assert sorted(p.name for p in inbox.iterdir()) == ["Scans", "imported"]   # Scans kept: "bad" is still there
+
+
+def test_import_inbox_with_nothing_to_import(tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    assert dataset.import_inbox(inbox, tmp_path / "lab", stamp="x") == {
+        "new": 0, "updated": 0, "same": 0, "skipped": [], "archived": None}
+    assert not (inbox / "imported").exists()

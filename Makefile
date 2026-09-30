@@ -4,7 +4,7 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 PROJECT := apps/ios/OnePieceAR.xcodeproj
 PACKAGE := apps/ios/Packages/OnePieceKit
 
-.PHONY: test build open ml-setup ml-test eval status freeze-test ship-baseline pull-model
+.PHONY: test build open ml-setup ml-test eval status freeze-test ship-baseline pull-model import-scans
 
 ## Unit tests for models, catalog, recognition math, and battle rules (no device needed). Serial: Vision tests deadlock in parallel.
 test:
@@ -28,6 +28,10 @@ ml-test:
 ## Recognition eval through the device pipeline; report in ml/runs/, history in ml/results/results.csv.
 eval:
 	cd ml && uv run scripts/evaluate.py --name $(or $(NAME),manual)
+
+## Mac mini: import scans copied into ~/oplab-inbox (SMB) and archive the originals.
+import-scans:
+	cd ml && uv run scripts/prepare_dataset.py import-inbox
 
 ## Scan labels, train/test split, and progress toward the next frozen test set.
 status:
