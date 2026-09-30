@@ -363,7 +363,11 @@ final class AppModel {
         if let printing = catalog.printing(id: printingID) {
             await select(printing, slot: slot, crop: crop, scanID: scanID, fromScan: true)
         } else {
+            // Invalidate any in-flight select for this slot so its spawn is despawned on return.
+            selectionGeneration[slot, default: 0] += 1
             clear(slot: slot)
+            // Battle: the emptied slot must be the next one filled.
+            if mode == .battle { targetSlot = min(targetSlot, slot) }
             identified = fullCatalog.entry(id: printingID)
         }
     }
