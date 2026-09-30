@@ -135,6 +135,17 @@ def synth_entries(synth_dir: Path = paths.SYNTH) -> list[dict]:
     return entries
 
 
+def catalog_card_ids() -> dict[str, str]:
+    """printingId -> cardId from the full catalog (API printing IDs are irregular, so don't split them)."""
+    if not paths.FULL_CATALOG.exists():
+        return {}
+    return {p["printingId"]: p["cardId"] for p in io.read_json(paths.FULL_CATALOG) if p.get("cardId")}
+
+
+def card_id_of(printing_id: str, card_ids: dict[str, str] | None = None) -> str:
+    return (card_ids or {}).get(printing_id) or printing_id.split("_", 1)[0]
+
+
 def build_test_manifest() -> list[dict]:
     """Photos (all), synthetic photos (all), and the test split of scans (already rectified crops)."""
     entries = photo_entries() + synth_entries() + negative_entries()
@@ -142,8 +153,9 @@ def build_test_manifest() -> list[dict]:
         if record["split"] == "test":
             entries.append({"id": record["id"], "path": record["path"], "printingId": record["printingId"],
                             "mode": "card", "tags": {"source": "scan", "label": record["label"]}})
+    card_ids = catalog_card_ids()
     for entry in entries:
-        entry["cardId"] = NEGATIVE if entry["printingId"] == NEGATIVE else entry["printingId"].split("_", 1)[0]
+        entry["cardId"] = NEGATIVE if entry["printingId"] == NEGATIVE else card_id_of(entry["printingId"], card_ids)
     return entries
 
 

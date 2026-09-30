@@ -97,7 +97,8 @@ def append_result(row: dict) -> None:
         writer.writerow({k: row.get(k) for k in RESULT_COLUMNS})
 
 
-def split_negatives(negatives: list[dict], indexed: set[str]) -> tuple[list[dict], list[dict]]:
+def split_negatives(negatives: list[dict], indexed: set[str],
+                    card_ids: dict[str, str] | None = None) -> tuple[list[dict], list[dict]]:
     """Negatives are photos of cards outside the roster. When the index covers their printing (a
     full-catalog index), they are cards the app should identify, so they become labeled positives.
     Only negatives outside the index remain for the rejection curve."""
@@ -105,7 +106,7 @@ def split_negatives(negatives: list[dict], indexed: set[str]) -> tuple[list[dict
     for entry in negatives:
         actual = entry["tags"].get("actual")
         if actual in indexed:
-            positives.append({**entry, "printingId": actual, "cardId": actual.split("_", 1)[0],
+            positives.append({**entry, "printingId": actual, "cardId": dataset.card_id_of(actual, card_ids),
                               "tags": {**entry["tags"], "source": "catalog"}})
         else:
             true_negatives.append(entry)
@@ -130,7 +131,8 @@ def main(argv: list[str] | None = None) -> None:
     entries = io.read_json(paths.TEST_MANIFEST)
     if args.source:
         entries = [e for e in entries if e["tags"]["source"] in args.source]
-    catalog_positives, negatives = split_negatives([e for e in entries if e["printingId"] == dataset.NEGATIVE], indexed)
+    catalog_positives, negatives = split_negatives(
+        [e for e in entries if e["printingId"] == dataset.NEGATIVE], indexed, dataset.catalog_card_ids())
     in_index = [e for e in entries if e["printingId"] in indexed] + catalog_positives
     skipped = len(entries) - len(in_index) - len(negatives)
     if args.limit:

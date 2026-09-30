@@ -16,6 +16,15 @@ def test_split_negatives_turns_indexed_cards_into_positives():
     assert [n["id"] for n in true_negatives] == ["negative:OP02-001/000_glare.jpg"]
 
 
+def test_split_negatives_takes_card_id_from_the_catalog():
+    negatives = [{"id": "n", "path": "x.jpg", "printingId": dataset.NEGATIVE, "cardId": dataset.NEGATIVE, "mode": "photo",
+                  "tags": {"source": "negative", "condition": "clean", "actual": "OP09-078-r1"}}]
+    positives, _ = evaluate.split_negatives(negatives, {"OP09-078-r1"}, {"OP09-078-r1": "OP09-078"})
+    assert positives[0]["cardId"] == "OP09-078"
+    positives, _ = evaluate.split_negatives(negatives, {"OP09-078-r1"})
+    assert positives[0]["cardId"] == "OP09-078-r1"  # no catalog: falls back to the split
+
+
 def test_append_result_migrates_old_header(tmp_path, monkeypatch):
     results = tmp_path / "results.csv"
     old_columns = [c for c in evaluate.RESULT_COLUMNS if c not in ("ocr_accuracy", "within_group")]
