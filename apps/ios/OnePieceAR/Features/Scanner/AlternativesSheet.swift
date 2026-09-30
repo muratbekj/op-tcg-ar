@@ -26,7 +26,14 @@ struct AlternativesSheet: View {
                         }
                     }
                     Section("Ranked by art similarity") {
-                        ForEach(recognition.result.candidates) { candidate in
+                        let inRoster = recognition.result.candidates.filter {
+                            model.catalog.printing(id: $0.printingID) != nil
+                        }
+                        if inRoster.isEmpty {
+                            Text("No other matches in this app's cards yet.")
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(inRoster) { candidate in
                             candidateRow(candidate, isCurrent: model.slots[recognition.slot]?.printing.id == candidate.printingID)
                         }
                     }
