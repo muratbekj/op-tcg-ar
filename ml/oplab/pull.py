@@ -2,7 +2,12 @@
 data/cards/{printings.f32, printings.meta.json, catalog.json} (copied into the bundle by the build
 phase) and apps/ios/OnePieceAR/Resources/Models/CardEmbedder.mlpackage (removed for a feature-print
 shipment, or the app would use the stale model and ignore the new index). Nothing is installed unless
-the fetched shipment validates."""
+the fetched shipment validates.
+
+Where ml/shipped/ comes from (ml/remote.env):
+- MINI_SHIPPED=/Volumes/op-tcg-ar/ml/shipped  the mini's repo shared over File Sharing and mounted in
+  Finder (no SSH needed; preferred)
+- MINI_HOST + MINI_REPO                       rsync over SSH (MINI_HOST=local: this Mac's own ml/shipped)"""
 
 import os
 import shutil
@@ -33,6 +38,26 @@ def fetch(host: str, repo: str, staging: Path, run=subprocess.run, local_shipped
         raise PullError(f"rsync from {host} failed ({error.returncode}); {hint}") from error
     except OSError as error:
         raise PullError(f"rsync not found or not runnable ({error})") from error
+
+
+def source(env: dict[str, str]) -> tuple:
+    """("mount", path) when MINI_SHIPPED is set, else ("ssh", host, repo)."""
+    if env.get("MINI_SHIPPED"):
+        return ("mount", Path(env["MINI_SHIPPED"]).expanduser())
+    host, repo = env.get("MINI_HOST", ""), env.get("MINI_REPO", "")
+    if not host or not repo:
+        raise remote.RemoteConfigError(
+            f"set MINI_SHIPPED (the mini's repo mounted over File Sharing) or MINI_HOST and MINI_REPO (SSH) "
+            f"in {paths.REMOTE_ENV} (copy ml/remote.env.example)")
+    return ("ssh", host, repo)
+
+
+def fetch_mounted(shipped_dir: Path, staging: Path) -> None:
+    """Copies ml/shipped/ from the mini's repo, mounted over File Sharing (SMB)."""
+    if not shipped_dir.parent.exists():
+        raise PullError(f"{shipped_dir.parent} isn't there: mount the mini's repo first "
+                        "(Finder → Go → Connect to Server → smb://<mini>.local → op-tcg-ar)")
+    fetch("local", "", staging, local_shipped=shipped_dir)
 
 
 def _remove(path: Path) -> None:
@@ -85,10 +110,13 @@ def install(staged: Path, data_cards: Path = paths.DATA_CARDS, app_models: Path 
 
 
 def main() -> None:
-    host, repo = remote.mini()
+    where = source(remote.read_env())
     staging = paths.ML / ".pull-staging"
     try:
-        fetch(host, repo, staging)
+        if where[0] == "mount":
+            fetch_mounted(where[1], staging)
+        else:
+            fetch(where[1], where[2], staging)
         actions = install(staging)
         info = shipped.read(staging)
     finally:

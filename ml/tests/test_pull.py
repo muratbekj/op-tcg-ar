@@ -113,3 +113,24 @@ def test_fetch_reports_missing_rsync_and_exit_codes(tmp_path):
         pull.fetch("h", "r", tmp_path / "s", run=code(23))
     with pytest.raises(pull.PullError, match="ssh failed"):
         pull.fetch("h", "r", tmp_path / "s", run=code(255))
+
+
+def test_source_prefers_the_mounted_share(tmp_path):
+    assert pull.source({"MINI_SHIPPED": str(tmp_path / "shipped"), "MINI_HOST": "h", "MINI_REPO": "r"}) == (
+        "mount", tmp_path / "shipped")
+    assert pull.source({"MINI_SHIPPED": "~/x/ml/shipped"})[1] == pull.Path("~/x/ml/shipped").expanduser()
+    assert pull.source({"MINI_HOST": "h", "MINI_REPO": "~/r"}) == ("ssh", "h", "~/r")
+    with pytest.raises(pull.remote.RemoteConfigError, match="MINI_SHIPPED"):
+        pull.source({})
+
+
+def test_fetch_mounted_needs_the_share_mounted(tmp_path):
+    with pytest.raises(pull.PullError, match="Connect to Server"):
+        pull.fetch_mounted(tmp_path / "Volumes" / "op-tcg-ar" / "ml" / "shipped", tmp_path / "staging")
+    staged = shipment(tmp_path)
+    out = tmp_path / "staging"
+    pull.fetch_mounted(staged, out)
+    assert shipped.read(out)["name"] == "vX"
+    (tmp_path / "ml").mkdir()
+    with pytest.raises(pull.PullError, match="nothing shipped"):
+        pull.fetch_mounted(tmp_path / "ml" / "shipped", out)

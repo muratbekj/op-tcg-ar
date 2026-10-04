@@ -143,27 +143,26 @@ with a different model (the backend ID includes the model version).
 ## Two Macs
 
 The MacBook builds the app; the Mac mini holds the datasets and does training, evals, and the
-showcase. Git carries code and small text artifacts; `ml/shipped/` (what the app bundles) travels by
-rsync.
+showcase. Git carries code and small text artifacts; `ml/shipped/` (what the app bundles) travels over
+**File Sharing**: the MacBook mounts the mini's repo and copies it. No SSH needed.
 
-**Mac mini, once:** clone the repo, install the Command Line Tools (`xcode-select --install`, ~3 GB;
-Xcode isn't needed, but macOS 15+ is), install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`) and tmux (`brew install
-tmux`), then `make ml-setup-train`, `mkdir ~/oplab-inbox`, and in System Settings → General → Sharing
-turn on **File Sharing** (add `~/oplab-inbox`) and **Remote Login**.
+**Mac mini, once:** clone the repo to `~/github/op-tcg-ar`, install the Command Line Tools
+(`xcode-select --install`, ~3 GB; Xcode isn't needed, but macOS 15+ is), install uv
+(`curl -LsSf https://astral.sh/uv/install.sh | sh`) and tmux (`brew install tmux`), then
+`make ml-setup-train` and `mkdir ~/oplab-inbox`. In System Settings → General → Sharing turn on
+**File Sharing** and add two folders: `~/oplab-inbox` (the iPhone drops scans here) and
+`~/github/op-tcg-ar` (the MacBook pulls `ml/shipped/` from here). Run `make mini-doctor` until it says
+"all set".
 
-**MacBook, once:** `cp ml/remote.env.example ml/remote.env`, set `MINI_HOST` (e.g.
-`murat@mac-mini.local`) and `MINI_REPO`. If `~/.ssh/id_ed25519.pub` doesn't exist, run
-`ssh-keygen -t ed25519`. Then `ssh-copy-id murat@mac-mini.local` (the same value as `MINI_HOST`).
-
-**Back on the Mac mini:** run `make mini-doctor` until it says "all set" (the MacBook-key check only
-clears after the MacBook step).
+**MacBook, once:** Finder → Go → Connect to Server (⌘K) → `smb://<mini>.local` → log in with the
+mini's user → pick `op-tcg-ar`; it mounts at `/Volumes/op-tcg-ar`. Then
+`cp ml/remote.env.example ml/remote.env` and keep `MINI_SHIPPED=/Volumes/op-tcg-ar/ml/shipped`.
 
 **Check the index once:** Vision's feature print can differ slightly between macOS versions, and the
 phone runs its own OS. After both Macs have built the full index (`generate_embeddings.py`), compare
-them on the MacBook:
+them on the MacBook (with the mini's repo mounted):
 ```sh
-rsync -a murat@mac-mini.local:~/github/op-tcg-ar/data/cards/printings.{f32,meta.json} /tmp/
-cd ml && uv run scripts/compare_index.py ../data/cards/printings.f32 /tmp/printings.f32
+cd ml && uv run scripts/compare_index.py ../data/cards/printings.f32 /Volumes/op-tcg-ar/data/cards/printings.f32
 ```
 "interchangeable" (cosine ≥ 0.99 for every printing) means the mini can build everything it ships.
 Otherwise build the shipped index on the MacBook.
@@ -175,15 +174,20 @@ Otherwise build the shipped index on the MacBook.
    `oplab-inbox/imported/`), then `make status`. `oplab-inbox/imported/` is only a safety archive of
    each copy; delete old stamps whenever.
 
-**Shipping to the app:** Mac mini `make ship-baseline` (the feature print as v0; fine-tuned models
-ship with `make ship` in the next phase) → MacBook `make pull-model` → rebuild in Xcode. `pull-model`
-refuses a shipment whose model and index disagree, and removes a stale model for a feature-print
-shipment. If `pull-model` removed a model, do Product → Clean Build Folder (⇧⌘K) before rebuilding.
-Single Mac? `MINI_HOST=local` applies to `pull-model` (`MINI_REPO` is still required); `train-remote`
-needs a real mini.
+**Training:** on the mini, `make train NAME=v1` (`caffeinate` keeps it awake; run it inside `tmux` if
+you want to close the terminal).
 
-**Training from the MacBook:** `make train-remote NAME=v1` starts `make train NAME=v1` on the mini in
-tmux (`caffeinate` keeps it awake); `train-remote` prints the exact `ssh -t <host> tmux attach -t train-v1` command to watch it.
+**Shipping to the app:** Mac mini `make ship-baseline` (the feature print as v0; fine-tuned models
+ship with `make ship` in the next phase) → MacBook (share mounted) `make pull-model` → rebuild in
+Xcode. `pull-model` refuses a shipment whose model and index disagree, and removes a stale model for a
+feature-print shipment. If `pull-model` removed a model, do Product → Clean Build Folder (⇧⌘K) before
+rebuilding.
+
+**Optional, SSH instead of File Sharing:** set `MINI_HOST` (e.g. `you@mini.local`) and `MINI_REPO`
+instead of `MINI_SHIPPED`, turn on Remote Login on the mini, and authorize the MacBook's key
+(`ssh-copy-id`). `pull-model` then uses rsync, and `make train-remote NAME=v1` starts training on the
+mini in tmux from the MacBook. Single Mac? `MINI_HOST=local` (with any `MINI_REPO`) makes `pull-model`
+read this Mac's own `ml/shipped/`.
 
 ## Scripts
 
