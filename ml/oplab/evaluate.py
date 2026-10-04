@@ -141,7 +141,7 @@ def testset_problems(entries: list[dict], indexed: set[str], limit: int | None, 
     return None
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> Path:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--name", default="baseline", help="label for this run in results.csv")
     parser.add_argument("--index", type=Path, default=paths.INDEX)
@@ -210,7 +210,8 @@ def main(argv: list[str] | None = None) -> None:
     run_dir = paths.RUNS / f"{stamp}-{args.name}"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "predictions.jsonl").write_text("".join(json.dumps(p) + "\n" for p in predictions))
-    io.write_json(run_dir / "metrics.json", {k: result[k] for k in ("summary", "groups", "hard_cases", "rejection")})
+    io.write_json(run_dir / "metrics.json", {"testset": testset_name or None,
+                                             **{k: result[k] for k in ("summary", "groups", "hard_cases", "rejection")}})
     report = render_report(args.name, meta, result, skipped, testset=testset_name)
     (run_dir / "report.md").write_text(report)
 
@@ -224,6 +225,7 @@ def main(argv: list[str] | None = None) -> None:
     })
     print(report)
     print(f"run saved to {run_dir}")
+    return run_dir
 
 
 if __name__ == "__main__":

@@ -30,9 +30,11 @@ ml-setup:
 ml-test:
 	cd ml && uv run pytest -q
 
-## Recognition eval through the device pipeline; report in ml/runs/, history in ml/results/results.csv.
+## Evaluate model version NAME (v0 = Vision feature print) on the latest frozen test set; writes
+## ml/models/NAME/{metrics.json, MODEL_CARD.md}. DIAG=1 uses the synthetic/photo manifest (not shippable).
 eval:
-	cd ml && uv run scripts/evaluate.py --name $(or $(NAME),manual)
+	@test -n "$(NAME)" || { echo "usage: make eval NAME=v1 [DIAG=1]"; exit 2; }
+	cd ml && uv run scripts/registry.py eval $(NAME) $(if $(DIAG),--diagnostic,)
 
 ## Mac mini: import scans copied into ~/oplab-inbox (SMB) and archive the originals.
 import-scans:
