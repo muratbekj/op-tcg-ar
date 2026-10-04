@@ -7,9 +7,10 @@ and MODEL_CARD.md. `ship_version` only ships versions evaluated on the current f
 
 import argparse
 import platform
+import shutil
 from pathlib import Path
 
-from . import doctor, embeddings, evaluate, io, paths, remote, testsets
+from . import dataset, doctor, embeddings, evaluate, io, paths, remote, shipped, testsets
 
 FEATURE_PRINT_VERSION = "v0"
 MODEL_DIR = "CardEmbedder.mlpackage"
@@ -116,18 +117,49 @@ def eval_version(name: str, diagnostic: bool = False) -> dict:
     return stored
 
 
+def ship_version(name: str, docs_models: Path = paths.REPO / "docs" / "models") -> dict:
+    """Stage version `name` into ml/shipped/ for the app, only if it was evaluated on the current
+    frozen test set. Copies its model card to docs/models/<name>.md (commit it)."""
+    directory = version_dir(name)
+    metrics_path = directory / "metrics.json"
+    if not metrics_path.exists():
+        raise RegistryError(f"{name} hasn't been evaluated: make eval NAME={name}")
+    try:
+        current = testsets.load("latest")["name"]
+    except FileNotFoundError as error:
+        raise RegistryError(f"no frozen test set yet ({error}); ship-baseline ships v0 for app testing") from error
+    evaluated = io.read_json(metrics_path).get("testset")
+    if evaluated != current:
+        raise RegistryError(f"{name} was evaluated on {evaluated or 'the diagnostic manifest'}, not the current "
+                            f"frozen set {current}: make eval NAME={name}")
+    model = directory / MODEL_DIR
+    has_model = model.exists()
+    info = shipped.stage(name, directory / "printings.f32", directory / "printings.meta.json", paths.FULL_CATALOG,
+                         labels=len(dataset.scan_records()), model=model if has_model else None,
+                         model_version=name if has_model else None)
+    docs_models.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(directory / "MODEL_CARD.md", docs_models / f"{name}.md")
+    return info
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     ev = sub.add_parser("eval", help="evaluate a version on the latest frozen test set and write its model card")
     ev.add_argument("name")
     ev.add_argument("--diagnostic", action="store_true", help="synthetic/photo manifest instead (not shippable)")
+    sh = sub.add_parser("ship", help="ship an evaluated version to ml/shipped/ (the app's next pull-model)")
+    sh.add_argument("name")
     args = parser.parse_args(argv)
     try:
         if args.command == "eval":
             stored = eval_version(args.name, args.diagnostic)
             print(f"{args.name}: top-1 {_with_ci(stored['summary']['top1'], stored['summary'].get('top1_ci'))} "
                   f"on {stored['testset'] or 'the diagnostic manifest'}; card: {version_dir(args.name) / 'MODEL_CARD.md'}")
+        elif args.command == "ship":
+            info = ship_version(args.name)
+            print(f"shipped {info['name']} -> ml/shipped/; card -> docs/models/{args.name}.md (commit it); "
+                  "then make pull-model and rebuild the app")
     except (ValueError, RegistryError, FileNotFoundError) as error:
         raise SystemExit(str(error))
 

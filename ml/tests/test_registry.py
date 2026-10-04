@@ -98,3 +98,58 @@ def test_eval_refuses_a_missing_model(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "MODELS", tmp_path / "models")
     with pytest.raises(registry.RegistryError, match="make export NAME=v2"):
         registry.eval_version("v2")
+
+
+def _version(tmp_path, name, testset, with_model=True):
+    d = tmp_path / "models" / name
+    d.mkdir(parents=True)
+    backend = f"coreml:CardEmbedder@{name}" if with_model else "vision-featureprint-r2"
+    (d / "printings.f32").write_bytes(b"\0" * 8)
+    (d / "printings.meta.json").write_text(json.dumps({"backend": backend, "dimension": 1, "rows": ["A", "B"]}))
+    (d / "metrics.json").write_text(json.dumps({"name": name, "testset": testset, "backend": backend, "summary": SUMMARY}))
+    (d / "MODEL_CARD.md").write_text(f"# Model card: {name}\n")
+    if with_model:
+        (d / "CardEmbedder.mlpackage").mkdir()
+        (d / "CardEmbedder.mlpackage" / "Manifest.json").write_text("{}")
+    return d
+
+
+def test_ship_refuses_without_current_frozen_eval(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "MODELS", tmp_path / "models")
+    monkeypatch.setattr(registry.testsets, "load", lambda name: {"name": "test-v2"})
+    _version(tmp_path, "v1", None)
+    with pytest.raises(registry.RegistryError, match="test-v2"):
+        registry.ship_version("v1", docs_models=tmp_path / "docs")
+    _version(tmp_path, "v3", "test-v1")
+    with pytest.raises(registry.RegistryError, match="test-v2"):
+        registry.ship_version("v3", docs_models=tmp_path / "docs")
+    with pytest.raises(registry.RegistryError, match="make eval NAME=v9"):
+        registry.ship_version("v9", docs_models=tmp_path / "docs")
+
+
+def test_ship_stages_model_index_and_card(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "MODELS", tmp_path / "models")
+    monkeypatch.setattr(paths, "FULL_CATALOG", tmp_path / "catalog.json")
+    (tmp_path / "catalog.json").write_text("[]")
+    monkeypatch.setattr(registry.testsets, "load", lambda name: {"name": "test-v1"})
+    monkeypatch.setattr(registry.dataset, "scan_records", lambda: [1, 2, 3])
+    staged = {}
+    monkeypatch.setattr(registry.shipped, "stage", lambda *a, **k: staged.update(args=a, kwargs=k) or {"name": a[0]})
+    _version(tmp_path, "v1", "test-v1")
+    registry.ship_version("v1", docs_models=tmp_path / "docs")
+    assert staged["args"][0] == "v1" and staged["kwargs"]["model_version"] == "v1"
+    assert staged["kwargs"]["model"].name == "CardEmbedder.mlpackage" and staged["kwargs"]["labels"] == 3
+    assert (tmp_path / "docs" / "v1.md").read_text() == "# Model card: v1\n"
+
+
+def test_ship_v0_has_no_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "MODELS", tmp_path / "models")
+    monkeypatch.setattr(paths, "FULL_CATALOG", tmp_path / "catalog.json")
+    (tmp_path / "catalog.json").write_text("[]")
+    monkeypatch.setattr(registry.testsets, "load", lambda name: {"name": "test-v1"})
+    monkeypatch.setattr(registry.dataset, "scan_records", lambda: [])
+    staged = {}
+    monkeypatch.setattr(registry.shipped, "stage", lambda *a, **k: staged.update(kwargs=k) or {"name": a[0]})
+    _version(tmp_path, "v0", "test-v1", with_model=False)
+    registry.ship_version("v0", docs_models=tmp_path / "docs")
+    assert staged["kwargs"]["model"] is None and staged["kwargs"]["model_version"] is None

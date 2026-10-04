@@ -26,7 +26,7 @@ make test     # OnePieceKit + BattleKit unit tests, no device needed
 make build    # compile the app for a generic iPhone, unsigned
 make open     # open in Xcode
 make ml-test  # ML lab unit tests
-make eval     # evaluate recognition on the current test set (see ml/README.md)
+make eval NAME=v0   # evaluate a model version on the frozen test set (see ml/README.md)
 ```
 
 To run on your phone: open the project, go to Signing & Capabilities for the OnePieceAR target,
