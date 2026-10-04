@@ -46,13 +46,22 @@ class SystemProbe:
     def inbox_exists(self) -> bool:
         return paths.INBOX.is_dir()
 
-    def inbox_shared(self) -> bool | None:
+    def _shared_paths(self) -> set[str] | None:
         try:
             out = subprocess.run(["sharing", "-l"], capture_output=True, text=True, check=True).stdout
         except (OSError, subprocess.CalledProcessError):
             return None
         shared = {line.split(":", 1)[1].strip() for line in out.splitlines() if line.strip().startswith("path:")}
-        return os.path.realpath(paths.INBOX) in {os.path.realpath(p) for p in shared}
+        return {os.path.realpath(p) for p in shared}
+
+    def inbox_shared(self) -> bool | None:
+        shared = self._shared_paths()
+        return None if shared is None else os.path.realpath(paths.INBOX) in shared
+
+    def repo_shared(self) -> bool | None:
+        """The repo is shared so the MacBook can mount it and pull ml/shipped/ without SSH."""
+        shared = self._shared_paths()
+        return None if shared is None else os.path.realpath(paths.REPO) in shared
 
     def ssh_listening(self) -> bool:
         try:
@@ -119,7 +128,8 @@ def checks(probe) -> list[Check]:
     inbox_exists = probe.inbox_exists()
     ssh = probe.ssh_listening()
     keys = probe.authorized_keys()
-    smb = probe.smb_listening() if shared else None
+    repo_shared = probe.repo_shared()
+    smb = probe.smb_listening() if (shared or repo_shared) else None
     has_uv, has_tmux = probe.login_has("uv"), probe.login_has("tmux")
     training = probe.has_module("torch") and probe.has_module("coremltools")
     return [
@@ -135,11 +145,17 @@ def checks(probe) -> list[Check]:
               "couldn't read `sharing -l`; check System Settings → General → Sharing → File Sharing" if shared is None
               else ("shared" if smb else "turn on File Sharing (System Settings → General → Sharing)") if shared
               else "System Settings → General → Sharing → File Sharing → + → ~/oplab-inbox"),
-        Check("Remote Login (SSH)", ssh,
-              "on" if ssh else "System Settings → General → Sharing → Remote Login"),
-        Check("MacBook key", keys,
+        Check("repo shared (SMB)", None if repo_shared is None else bool(repo_shared and smb),
+              "couldn't read `sharing -l`" if repo_shared is None
+              else ("shared: the MacBook mounts it for pull-model" if smb
+                    else "turn on File Sharing (System Settings → General → Sharing)") if repo_shared
+              else f"File Sharing → + → {paths.REPO} (the MacBook's pull-model reads ml/shipped through it)"),
+        # SSH is optional: only `train-remote` and SSH-mode pull-model use it.
+        Check("Remote Login (SSH)", True if ssh else None,
+              "on" if ssh else "off: only needed for train-remote over SSH (optional)"),
+        Check("MacBook key", True if keys else None,
               {True: "authorized", None: "couldn't read ~/.ssh/authorized_keys"}
-              .get(keys, "on the MacBook: ssh-copy-id <user>@<this-mac>.local")),
+              .get(keys, "none: only needed for SSH (optional)")),
         Check("full-catalog index", rows >= FULL_CATALOG_ROWS,
               f"{rows} rows" if rows >= FULL_CATALOG_ROWS else
               f"{rows} rows; run fetch_cards.py --art all, then generate_embeddings.py --min-similarity 0.8"),

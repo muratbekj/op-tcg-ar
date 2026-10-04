@@ -4,7 +4,7 @@ from oplab import doctor
 class FakeProbe:
     def __init__(self, **overrides):
         self.values = {"macos_version": "26.0", "swift_version": "Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5)", "which": {"uv", "tmux", "rsync"},
-                       "modules": {"torch", "coremltools"}, "inbox_exists": True, "inbox_shared": True,
+                       "modules": {"torch", "coremltools"}, "inbox_exists": True, "inbox_shared": True, "repo_shared": True,
                        "ssh_listening": True, "smb_listening": True, "login": {"uv", "tmux"}, "authorized_keys": True, "index_rows": 4212, **overrides}
 
     def macos_version(self): return self.values["macos_version"]
@@ -13,6 +13,7 @@ class FakeProbe:
     def has_module(self, name): return name in self.values["modules"]
     def inbox_exists(self): return self.values["inbox_exists"]
     def inbox_shared(self): return self.values["inbox_shared"]
+    def repo_shared(self): return self.values["repo_shared"]
     def smb_listening(self): return self.values["smb_listening"]
     def login_has(self, cmd): return None if self.values["login"] is None else cmd in self.values["login"]
     def ssh_listening(self): return self.values["ssh_listening"]
@@ -23,7 +24,7 @@ class FakeProbe:
 def test_all_good():
     results = doctor.checks(FakeProbe())
     assert [c.name for c in results] == ["macOS", "Swift toolchain", "uv", "tmux", "training extras", "inbox folder",
-                                         "inbox shared (SMB)", "Remote Login (SSH)", "MacBook key", "full-catalog index"]
+                                         "inbox shared (SMB)", "repo shared (SMB)", "Remote Login (SSH)", "MacBook key", "full-catalog index"]
     text, code = doctor.render(results)
     assert code == 0 and "✗" not in text
     assert "macOS 26.0" in text and "Apple Swift version 6.1.2" in text
@@ -31,12 +32,13 @@ def test_all_good():
 
 def test_missing_items_fail_with_hints():
     results = doctor.checks(FakeProbe(swift_version=None, which={"rsync"}, login=set(), modules=set(), inbox_exists=False,
-                                      inbox_shared=False, ssh_listening=False, authorized_keys=False, index_rows=14))
+                                      inbox_shared=False, repo_shared=False, ssh_listening=False, authorized_keys=False, index_rows=14))
     text, code = doctor.render(results)
     assert code == 1
     assert "✗ Swift toolchain" in text and "xcode-select --install" in text and "✗ uv" in text and "brew install tmux" in text and "make ml-setup-train" in text
-    assert "mkdir ~/oplab-inbox" in text and "File Sharing" in text and "Remote Login" in text
-    assert "ssh-copy-id" in text and "generate_embeddings.py" in text
+    assert "mkdir ~/oplab-inbox" in text and "File Sharing" in text and "✗ repo shared (SMB)" in text
+    assert str(doctor.paths.REPO) in text and "generate_embeddings.py" in text
+    assert "? Remote Login (SSH): off" in text and "? MacBook key: none" in text   # SSH is optional
 
 
 def test_swift_older_than_6_fails():
@@ -129,3 +131,17 @@ def test_login_has_uses_login_shell(monkeypatch):
         raise OSError
     monkeypatch.setattr(doctor.subprocess, "run", boom)
     assert probe.login_has("uv") is None
+
+
+def test_ssh_is_optional():
+    text, code = doctor.render(doctor.checks(FakeProbe(ssh_listening=False, authorized_keys=False)))
+    assert code == 0 and "all set" in text
+
+
+def test_repo_shared_probe(monkeypatch):
+    _sharing(monkeypatch, f"path:\t\t{doctor.paths.REPO}\n")
+    assert doctor.SystemProbe().repo_shared() is True
+    _sharing(monkeypatch, "path:\t\t/elsewhere\n")
+    assert doctor.SystemProbe().repo_shared() is False
+    _sharing(monkeypatch, None)
+    assert doctor.SystemProbe().repo_shared() is None

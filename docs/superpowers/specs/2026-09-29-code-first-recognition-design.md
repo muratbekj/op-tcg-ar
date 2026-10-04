@@ -125,8 +125,11 @@ macOS and Xcode versions, and known caveats. `make ship` copies the card to `doc
 | Train / eval / showcase | — | yes |
 | Build app | yes | no |
 
-Git carries code, `results.csv`, `ml/testsets/*.json`, `docs/models/*.md`, and the chart SVG. rsync
-carries `ml/shipped/` (mlpackage, index, `catalog.json`).
+Git carries code, `results.csv`, `ml/testsets/*.json`, `docs/models/*.md`, and the chart SVG.
+`ml/shipped/` (mlpackage, index, `catalog.json`) travels over File Sharing: the MacBook mounts the
+mini's repo (SMB) and `pull-model` copies from it. rsync over SSH remains an optional alternative.
+**Amendment (2026-10-03):** File Sharing replaced SSH as the default transport after SSH setup proved
+unreliable on the user's network.
 
 ### Mac mini one-time setup (checked by `make mini-doctor`)
 
@@ -134,10 +137,11 @@ carries `ml/shipped/` (mlpackage, index, `catalog.json`).
    mini). Vision output can differ across OS versions, so an index built on the mini is compared
    once with the MacBook's (`compare_index.py`), and model cards record the versions.
 2. `uv`, then `make ml-setup` with the `train` extra.
-3. File Sharing on, sharing `~/oplab-inbox`.
-4. Remote Login on, with the MacBook's SSH key authorized.
+3. File Sharing on, sharing `~/oplab-inbox` and the repo (`~/github/op-tcg-ar`).
+4. Optional: Remote Login with the MacBook's SSH key (only for `train-remote` and rsync mode).
 
-MacBook: `ml/remote.env` (gitignored) with `MINI_HOST` and `MINI_REPO`.
+MacBook: `ml/remote.env` (gitignored) with `MINI_SHIPPED=/Volumes/op-tcg-ar/ml/shipped` (File
+Sharing) or `MINI_HOST` and `MINI_REPO` (SSH).
 
 ### Make targets
 
@@ -151,8 +155,8 @@ MacBook: `ml/remote.env` (gitignored) with `MINI_HOST` and `MINI_REPO`.
 | mini | `eval NAME=vN` | evaluates on the latest frozen test set, writes `metrics.json` and `MODEL_CARD.md` |
 | mini | `ship NAME=vN` | refuses unless vN was evaluated on the current frozen test set; copies to `ml/shipped/` and `docs/models/`, appends to `results.csv`, regenerates the showcase |
 | mini | `showcase` | regenerates the chart, the case-study tables, and the static site; `PUBLISH=1` pushes the site |
-| MacBook | `pull-model` | rsyncs `ml/shipped/` into the app resources; fails if the mlpackage version doesn't match the index `backend` |
-| MacBook | `train-remote NAME=vN` | runs `make train` on the mini over SSH inside `tmux` |
+| MacBook | `pull-model` | copies `ml/shipped/` from the mounted share (or rsync over SSH) into the app resources; fails if the mlpackage version doesn't match the index `backend` |
+| MacBook | `train-remote NAME=vN` | optional (SSH mode): runs `make train` on the mini over SSH inside `tmux` |
 
 The iPhone → mini step is manual: in the Files app, connect to `smb://<mini>.local`, then copy
 On My iPhone → OP Card AR → Scans into `oplab-inbox`.
