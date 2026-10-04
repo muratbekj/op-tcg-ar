@@ -36,7 +36,8 @@ def test_missing_items_fail_with_hints():
     text, code = doctor.render(results)
     assert code == 1
     assert "✗ Swift toolchain" in text and "xcode-select --install" in text and "✗ uv" in text and "brew install tmux" in text and "make ml-setup-train" in text
-    assert "mkdir ~/oplab-inbox" in text and "File Sharing" in text and "✗ repo shared (SMB)" in text
+    assert "mkdir ~/oplab-inbox" in text and "File Sharing" in text
+    assert "? repo shared (SMB)" in text and "? inbox shared (SMB)" in text   # sharing is optional
     assert str(doctor.paths.REPO) in text and "generate_embeddings.py" in text
     assert "? Remote Login (SSH): off" in text and "? MacBook key: none" in text   # SSH is optional
 
@@ -145,3 +146,10 @@ def test_repo_shared_probe(monkeypatch):
     assert doctor.SystemProbe().repo_shared() is False
     _sharing(monkeypatch, None)
     assert doctor.SystemProbe().repo_shared() is None
+
+
+def test_sharing_is_optional_for_a_single_mac():
+    text, code = doctor.render(doctor.checks(FakeProbe(inbox_shared=False, repo_shared=False)))
+    assert code == 0 and "all set" in text
+    assert "? inbox shared (SMB)" in text and "AirDrop" in text
+    assert "? repo shared (SMB)" in text and "another Mac" in text

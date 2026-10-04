@@ -141,15 +141,18 @@ def checks(probe) -> list[Check]:
                                               "brew install tmux (train-remote runs training inside it)")),
         Check("training extras", training, "torch + coremltools" if training else "make ml-setup-train"),
         Check("inbox folder", inbox_exists, str(paths.INBOX) if inbox_exists else "mkdir ~/oplab-inbox"),
-        Check("inbox shared (SMB)", None if shared is None else bool(shared and smb),
+        # Sharing is optional: the mini does everything itself, and scans can arrive by AirDrop or cable.
+        # A share that's listed while File Sharing is off is still a failure: that setup is broken.
+        Check("inbox shared (SMB)", bool(smb) if shared else None,
               "couldn't read `sharing -l`; check System Settings → General → Sharing → File Sharing" if shared is None
               else ("shared" if smb else "turn on File Sharing (System Settings → General → Sharing)") if shared
-              else "System Settings → General → Sharing → File Sharing → + → ~/oplab-inbox"),
-        Check("repo shared (SMB)", None if repo_shared is None else bool(repo_shared and smb),
+              else "not shared: System Settings → General → Sharing → File Sharing → + → ~/oplab-inbox "
+                   "(optional: AirDrop or cable also work)"),
+        Check("repo shared (SMB)", bool(smb) if repo_shared else None,
               "couldn't read `sharing -l`" if repo_shared is None
               else ("shared: the MacBook mounts it for pull-model" if smb
                     else "turn on File Sharing (System Settings → General → Sharing)") if repo_shared
-              else f"File Sharing → + → {paths.REPO} (the MacBook's pull-model reads ml/shipped through it)"),
+              else f"not shared (optional: only needed to pull from another Mac): File Sharing → + → {paths.REPO}"),
         # SSH is optional: only `train-remote` and SSH-mode pull-model use it.
         Check("Remote Login (SSH)", True if ssh else None,
               "on" if ssh else "off: only needed for train-remote over SSH (optional)"),
