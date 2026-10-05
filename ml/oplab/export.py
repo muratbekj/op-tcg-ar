@@ -10,7 +10,6 @@ After exporting: regenerate references with the same model
 
 import argparse
 import shutil
-from datetime import datetime
 from pathlib import Path
 
 import coremltools as ct
@@ -20,6 +19,12 @@ from . import paths
 from .train import Embedder
 
 MODEL_NAME = "CardEmbedder"
+
+
+def model_version(name: str) -> str:
+    """The Core ML model's version string; the app's backend ID becomes `coreml:CardEmbedder@<version>`,
+    which `ml/shipped/shipped.json` and index metadata must match."""
+    return name
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -45,7 +50,7 @@ def main(argv: list[str] | None = None) -> None:
         minimum_deployment_target=ct.target.iOS18,
         convert_to="mlprogram",
     )
-    version = f"{args.name}-{datetime.now().strftime('%Y%m%d%H%M')}"
+    version = model_version(args.name)
     mlmodel.version = version
     mlmodel.short_description = f"Card embedding ({checkpoint['dim']}-d) trained on {len(checkpoint['classes'])} printings"
 

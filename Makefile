@@ -9,7 +9,7 @@ endif
 PROJECT := apps/ios/OnePieceAR.xcodeproj
 PACKAGE := apps/ios/Packages/OnePieceKit
 
-.PHONY: test build open ml-setup ml-test eval status freeze-test ship-baseline pull-model import-scans mini-doctor ml-setup-train train train-remote
+.PHONY: test build open ml-setup ml-test eval status freeze-test ship-baseline ship pull-model import-scans mini-doctor ml-setup-train train export train-remote
 
 ## Unit tests for models, catalog, recognition math, and battle rules (no device needed). Serial: Vision tests deadlock in parallel.
 test:
@@ -30,9 +30,12 @@ ml-setup:
 ml-test:
 	cd ml && uv run pytest -q
 
-## Recognition eval through the device pipeline; report in ml/runs/, history in ml/results/results.csv.
+## Evaluate model version NAME (v0 = Vision feature print) on the latest frozen test set; writes
+## ml/models/NAME/{metrics.json, MODEL_CARD.md}. DIAG=1 uses the synthetic/photo manifest; SCANS=test uses the
+## unfrozen test pool (real scans the model never trained on; preliminary). Neither is shippable.
 eval:
-	cd ml && uv run scripts/evaluate.py --name $(or $(NAME),manual)
+	@test -n "$(NAME)" || { echo "usage: make eval NAME=v1 [DIAG=1 | SCANS=test]"; exit 2; }
+	cd ml && uv run scripts/registry.py eval $(NAME) $(if $(DIAG),--diagnostic,) $(if $(SCANS),--scans $(SCANS),)
 
 ## Mac mini: import scans copied into ~/oplab-inbox (SMB) and archive the originals.
 import-scans:
@@ -50,6 +53,11 @@ freeze-test:
 ship-baseline:
 	cd ml && uv run scripts/ship.py baseline --name $(or $(NAME),v0)
 
+## Ship model version NAME to ml/shipped/ (refuses unless evaluated on the current frozen test set).
+ship:
+	@test -n "$(NAME)" || { echo "usage: make ship NAME=v1"; exit 2; }
+	cd ml && uv run scripts/registry.py ship $(NAME)
+
 ## MacBook: fetch ml/shipped/ from the Mac mini (ml/remote.env) and install it for the next app build.
 pull-model:
 	cd ml && uv run scripts/remote.py pull-model
@@ -66,6 +74,11 @@ mini-doctor:
 train:
 	@test -n "$(NAME)" || { echo "usage: make train NAME=v1 [ARGS='--epochs 10']"; exit 2; }
 	cd ml && caffeinate -i uv run scripts/train_embedding.py --name $(NAME) $(ARGS)
+
+## Mac mini: export a trained run to Core ML (ml/models/NAME/CardEmbedder.mlpackage).
+export:
+	@test -n "$(NAME)" || { echo "usage: make export NAME=v1"; exit 2; }
+	cd ml && uv run scripts/export_coreml.py --name $(NAME)
 
 ## MacBook: start `make train NAME=…` on the Mac mini (ml/remote.env) inside tmux.
 train-remote:

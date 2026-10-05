@@ -125,20 +125,22 @@ accuracy. Two ways to get real data:
   **v0 baseline:** right after freezing `test-v1`, record the Vision feature print on it, before any
   fine-tuned model: `uv run scripts/evaluate.py --testset test-v1 --name v0`.
 
-## Fine-tuning (only once feature prints plateau)
+## Training your own model (Mac mini)
 
 ```sh
-uv run scripts/fetch_cards.py --art all                # ~4k printings, ~1.4 GB of art
-uv run scripts/train_embedding.py --name v1 --epochs 10  # MobileNetV3 + CosFace, uses the Mac GPU (MPS)
-uv run scripts/export_coreml.py --name v1                # -> models/v1/CardEmbedder.mlpackage
-uv run scripts/generate_embeddings.py --model models/v1/CardEmbedder.mlpackage --out datasets/references/v1.f32
-uv run scripts/evaluate.py --name v1 --index datasets/references/v1.f32 --model models/v1/CardEmbedder.mlpackage
+make train NAME=v1                 # catalog art + your labeled train-side scans (×4), group-aware batches
+make export NAME=v1                # -> ml/models/v1/CardEmbedder.mlpackage (backend coreml:CardEmbedder@v1)
+make eval NAME=v0                  # once: the Vision feature print baseline on the frozen test set
+make eval NAME=v1                  # builds v1's index, scores the frozen set, writes ml/models/v1/MODEL_CARD.md
+make ship NAME=v1                  # only if v1 was evaluated on the current frozen set; card -> docs/models/v1.md
+make pull-model                    # install into the app, then build in Xcode
 ```
-The training log prints a synthetic validation top-1 per epoch. Negative test cards are held out of
-training automatically. If v1 beats the baseline in `results.csv`, ship it:
-`export_coreml.py --name v1 --install` copies it into the app, then rebuild the app's index with
-`generate_embeddings.py --model … --min-similarity <v1's suggestion>`. The app refuses an index built
-with a different model (the backend ID includes the model version).
+Training reads only labeled, train-split, unfrozen scans (`dataset.train_records()`). Test printings
+never train. `ARGS='--epochs 3 --views 4'` passes options through; `--scan-weight N` changes the
+oversampling, `--no-scans` trains on art alone (a useful ablation). Before the first frozen test set,
+`make eval NAME=v1 DIAG=1` gives a quick synthetic/photo read. It's never shippable.
+Compare versions in `ml/results/results.csv`, and on the model cards' confidence intervals: a
+difference smaller than the intervals is noise.
 
 ## Two Macs
 
@@ -177,9 +179,10 @@ Otherwise build the shipped index on the MacBook.
 **Training:** on the mini, `make train NAME=v1` (`caffeinate` keeps it awake; run it inside `tmux` if
 you want to close the terminal).
 
-**Shipping to the app:** Mac mini `make ship-baseline` (the feature print as v0; fine-tuned models
-ship with `make ship` in the next phase) → MacBook (share mounted) `make pull-model` → rebuild in
-Xcode. `pull-model` refuses a shipment whose model and index disagree, and removes a stale model for a
+**Shipping to the app:** Mac mini `make ship NAME=vN` (any evaluated version, fine-tuned or the
+feature print; `make ship-baseline` still records the current feature-print index as v0 before the
+first frozen test set exists) → MacBook (share mounted) `make pull-model` → rebuild in Xcode.
+`pull-model` refuses a shipment whose model and index disagree, and removes a stale model for a
 feature-print shipment. If `pull-model` removed a model, do Product → Clean Build Folder (⇧⌘K) before
 rebuilding.
 
@@ -197,9 +200,10 @@ read this Mac's own `ml/shipped/`.
 | `prepare_dataset.py` | `synth`, `negatives`, `import-scans`, `import-inbox`, `build-test`, `status`, `freeze-test` |
 | `generate_embeddings.py` | reference index via `cardvision embed` (full catalog by default, `--scope roster` for roster only) |
 | `evaluate.py` | metrics via `cardvision match` on the manifest or a frozen test set (`--testset`), report, results history |
-| `train_embedding.py` | fine-tune an embedder on augmented card art |
+| `train_embedding.py` | fine-tune on art + labeled train scans, group-aware batches |
 | `export_coreml.py` | checkpoint -> Core ML `CardEmbedder.mlpackage` |
 | `ship.py` | `baseline`: ships the feature-print index as v0 into ml/shipped/ |
+| `registry.py` | `eval` and `ship` model versions (model cards) |
 | `compare_index.py` | compare two indexes built on different Macs (cosine per printing) |
 | `remote.py` | `pull-model`, `doctor`, `train-remote` |
 
