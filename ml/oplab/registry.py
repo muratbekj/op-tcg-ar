@@ -1,7 +1,8 @@
 """Model versions under ml/models/<name>/ (v0 = Apple's Vision feature print, v1… = fine-tuned).
 
 `eval_version` builds the full-catalog index with that version's embedder, scores it on the latest
-frozen real test set (or the synthetic/photo manifest with diagnostic=True), and writes metrics.json
+frozen real test set (or the synthetic/photo manifest with diagnostic=True, or the unfrozen test pool
+with scans="test", a preliminary real-scan check), and writes metrics.json
 and MODEL_CARD.md. `ship_version` only ships versions evaluated on the current frozen set.
 """
 
@@ -61,6 +62,9 @@ def render_card(name: str, training: dict | None, metrics: dict, environment: di
                   f"- Synthetic validation top-1 at the end of training: {_pct(training.get('synthetic_val_top1'))}"]
     if metrics["testset"]:
         lines += [f"- Test set: `{metrics['testset']}` (frozen real scans; printings never used for training)"]
+    elif metrics.get("source") == testsets.POOL_NAME:
+        lines += [f"- Test set: none frozen. **Preliminary** run on the unfrozen test pool ({s.get('n', '?')} real scans of "
+                  "printings never used for training): not shippable, and not comparable over time as the pool grows."]
     else:
         lines += ["- Test set: none. **Diagnostic** run on the synthetic/photo manifest: not shippable, "
                   "not a headline number."]
@@ -85,7 +89,7 @@ def render_card(name: str, training: dict | None, metrics: dict, environment: di
     return "\n".join(lines)
 
 
-def eval_version(name: str, diagnostic: bool = False) -> dict:
+def eval_version(name: str, diagnostic: bool = False, scans: str | None = None) -> dict:
     directory = version_dir(name)
     model = directory / MODEL_DIR
     if name != FEATURE_PRINT_VERSION and not model.exists():
@@ -102,13 +106,16 @@ def eval_version(name: str, diagnostic: bool = False) -> dict:
     if name != FEATURE_PRINT_VERSION:
         eval_args += ["--model", str(model)]
     testset = None
-    if not diagnostic:
+    if scans:
+        eval_args += ["--scans", scans]
+    elif not diagnostic:
         testset = testsets.load("latest")["name"]
         eval_args += ["--testset", testset]
     run_dir = evaluate.main(eval_args)
 
     run_metrics = io.read_json(Path(run_dir) / "metrics.json")
-    stored = {"name": name, "testset": testset, "run": str(run_dir),
+    source = "frozen" if testset else testsets.POOL_NAME if scans else "diagnostic"
+    stored = {"name": name, "testset": testset, "source": source, "run": str(run_dir),
               "backend": io.read_json(directory / "printings.meta.json")["backend"],
               "summary": run_metrics["summary"], "groups": run_metrics.get("groups", {})}
     io.write_json(directory / "metrics.json", stored)
@@ -130,7 +137,9 @@ def ship_version(name: str, docs_models: Path = paths.REPO / "docs" / "models") 
         raise RegistryError(f"no frozen test set yet ({error}); ship-baseline ships v0 for app testing") from error
     evaluated = io.read_json(metrics_path).get("testset")
     if evaluated != current:
-        raise RegistryError(f"{name} was evaluated on {evaluated or 'the diagnostic manifest'}, not the current "
+        where = evaluated or ("the unfrozen test pool" if io.read_json(metrics_path).get("source") == testsets.POOL_NAME
+                              else "the diagnostic manifest")
+        raise RegistryError(f"{name} was evaluated on {where}, not the current "
                             f"frozen set {current}: make eval NAME={name}")
     model = directory / MODEL_DIR
     has_model = model.exists()
@@ -148,14 +157,17 @@ def main(argv: list[str] | None = None) -> None:
     ev = sub.add_parser("eval", help="evaluate a version on the latest frozen test set and write its model card")
     ev.add_argument("name")
     ev.add_argument("--diagnostic", action="store_true", help="synthetic/photo manifest instead (not shippable)")
+    ev.add_argument("--scans", choices=["test"], help="the unfrozen test pool instead (preliminary; not shippable)")
     sh = sub.add_parser("ship", help="ship an evaluated version to ml/shipped/ (the app's next pull-model)")
     sh.add_argument("name")
     args = parser.parse_args(argv)
     try:
         if args.command == "eval":
-            stored = eval_version(args.name, args.diagnostic)
+            stored = eval_version(args.name, args.diagnostic, args.scans)
+            where = stored["testset"] or {"test-pool": "the unfrozen test pool (preliminary)"}.get(
+                stored["source"], "the diagnostic manifest")
             print(f"{args.name}: top-1 {_with_ci(stored['summary']['top1'], stored['summary'].get('top1_ci'))} "
-                  f"on {stored['testset'] or 'the diagnostic manifest'}; card: {version_dir(args.name) / 'MODEL_CARD.md'}")
+                  f"on {where}; card: {version_dir(args.name) / 'MODEL_CARD.md'}")
         elif args.command == "ship":
             info = ship_version(args.name)
             print(f"shipped {info['name']} -> ml/shipped/; card -> docs/models/{args.name}.md (commit it); "

@@ -150,12 +150,22 @@ def main(argv: list[str] | None = None) -> Path:
                         help="restrict to these sources (repeatable); default all")
     parser.add_argument("--testset", help="score a frozen real-scan test set (test-vN or 'latest') instead of the "
                         "synthetic/photo manifest")
+    parser.add_argument("--scans", choices=["test"], help="score the unfrozen test pool: labeled test-split scans "
+                        "not in a frozen set (preliminary; not shippable)")
     parser.add_argument("--no-ocr", action="store_true")
     parser.add_argument("--limit", type=int, help="evaluate only the first N images (quick checks)")
     args = parser.parse_args(argv)
 
     testset_name = ""
-    if args.testset:
+    if args.scans and (args.testset or args.limit or args.source):
+        raise SystemExit("--scans test can't be combined with --testset, --limit or --source")
+    if args.scans:
+        try:
+            pool = testsets.pool_set(dataset.scan_records(), testsets.frozen_sets())
+            entries = testsets.entries(pool, card_ids=dataset.catalog_card_ids())
+        except testsets.MissingScans as error:
+            raise SystemExit(str(error))
+    elif args.testset:
         if args.limit or args.source:
             raise SystemExit("--limit/--source can't be combined with --testset: a frozen set is always scored whole")
         try:
@@ -210,13 +220,15 @@ def main(argv: list[str] | None = None) -> Path:
     run_dir = paths.RUNS / f"{stamp}-{args.name}"
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "predictions.jsonl").write_text("".join(json.dumps(p) + "\n" for p in predictions))
-    io.write_json(run_dir / "metrics.json", {"testset": testset_name or None,
+    io.write_json(run_dir / "metrics.json", {"testset": testset_name or None, "scans": args.scans,
                                              **{k: result[k] for k in ("summary", "groups", "hard_cases", "rejection")}})
-    report = render_report(args.name, meta, result, skipped, testset=testset_name)
+    scored = testset_name or (testsets.POOL_NAME if args.scans else "")
+    report = render_report(args.name, meta, result, skipped,
+                           testset=f"{scored} (preliminary, unfrozen)" if args.scans else scored)
     (run_dir / "report.md").write_text(report)
 
     append_result({
-        "timestamp": stamp, "name": args.name, "testset": testset_name, "backend": meta["backend"],
+        "timestamp": stamp, "name": args.name, "testset": scored, "backend": meta["backend"],
         "index": args.index.name, "index_printings": len(indexed),
         "sources": "+".join(sorted({e["tags"]["source"] for e in in_index})),
         "ocr": not args.no_ocr, "skipped": skipped, **result["summary"],

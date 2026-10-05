@@ -76,3 +76,10 @@ def test_testset_problems():
     assert "--source" in evaluate.testset_problems(entries, {"A", "B"}, None, ["photo"])
     message = evaluate.testset_problems(entries, {"A"}, None, None)
     assert "2 of 3" in message and "B" in message and "full catalog" in message
+
+
+def test_scans_cant_be_combined_with_testset_limit_or_source():
+    import pytest
+    for extra in (["--testset", "latest"], ["--limit", "5"], ["--source", "photo"]):
+        with pytest.raises(SystemExit, match="--scans test"):
+            evaluate.main(["--scans", "test", *extra])

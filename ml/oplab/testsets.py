@@ -15,6 +15,7 @@ from . import dataset, io, paths
 
 MIN_SCANS = 200
 MIN_PRINTINGS = 30
+POOL_NAME = "test-pool"
 SET_FILE = re.compile(r"test-v\d+\.json")
 
 
@@ -42,6 +43,16 @@ def pool(records: list[dict], sets: list[dict], indexed: set[str] | None = None)
     return [r for r in records
             if r["split"] == "test" and r["label"] in ("confirmed", "corrected") and r["scanId"] not in frozen
             and (indexed is None or r["printingId"] in indexed)]
+
+
+def pool_set(records: list[dict], sets: list[dict]) -> dict:
+    """The unfrozen test pool shaped like a frozen set, for preliminary evals (`evaluate.py --scans test`).
+    Its printings were never trained on, but it grows as you label, so its scores aren't comparable over time."""
+    scans = sorted(pool(records, sets), key=lambda r: r["scanId"])
+    return {"name": POOL_NAME,
+            "scans": [{"scanId": r["scanId"], "printingId": r["printingId"], "label": r["label"], "method": r.get("method")}
+                      for r in scans],
+            "printings": sorted({r["printingId"] for r in scans})}
 
 
 def _progress(candidates: list[dict]) -> tuple[int, int]:

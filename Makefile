@@ -31,10 +31,11 @@ ml-test:
 	cd ml && uv run pytest -q
 
 ## Evaluate model version NAME (v0 = Vision feature print) on the latest frozen test set; writes
-## ml/models/NAME/{metrics.json, MODEL_CARD.md}. DIAG=1 uses the synthetic/photo manifest (not shippable).
+## ml/models/NAME/{metrics.json, MODEL_CARD.md}. DIAG=1 uses the synthetic/photo manifest; SCANS=test uses the
+## unfrozen test pool (real scans the model never trained on; preliminary). Neither is shippable.
 eval:
-	@test -n "$(NAME)" || { echo "usage: make eval NAME=v1 [DIAG=1]"; exit 2; }
-	cd ml && uv run scripts/registry.py eval $(NAME) $(if $(DIAG),--diagnostic,)
+	@test -n "$(NAME)" || { echo "usage: make eval NAME=v1 [DIAG=1 | SCANS=test]"; exit 2; }
+	cd ml && uv run scripts/registry.py eval $(NAME) $(if $(DIAG),--diagnostic,) $(if $(SCANS),--scans $(SCANS),)
 
 ## Mac mini: import scans copied into ~/oplab-inbox (SMB) and archive the originals.
 import-scans:

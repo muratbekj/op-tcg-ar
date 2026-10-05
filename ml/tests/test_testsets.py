@@ -132,3 +132,15 @@ def test_status_reports_unfreezable_and_relabeled():
     assert "not freezable (printing not in the index): 1 scans" in lines
     assert "frozen scans relabeled since freeze: 1" in lines
     assert not any("not freezable" in l for l in testsets.status_lines(all_records, sets))
+
+
+def test_pool_set_scores_the_unfrozen_test_pool(tmp_path):
+    records = [record("a", "P1"), record("b", "P2", split="train"), record("c", "P3", label="none"),
+               record("d", "P4", method="ocr")]
+    sets = [{"name": "test-v1", "version": 1, "scans": [{"scanId": "a", "printingId": "P1"}], "printings": ["P1"]}]
+    pool_set = testsets.pool_set(records, sets)
+    assert pool_set["name"] == testsets.POOL_NAME == "test-pool"
+    assert pool_set["scans"] == [{"scanId": "d", "printingId": "P4", "label": "confirmed", "method": "ocr"}]
+    make_crops(tmp_path, "d")
+    rows = testsets.entries(pool_set, tmp_path, card_ids={})
+    assert [r["id"] for r in rows] == ["scan:d"] and rows[0]["tags"]["testset"] == "test-pool"

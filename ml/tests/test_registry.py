@@ -153,3 +153,31 @@ def test_ship_v0_has_no_model(tmp_path, monkeypatch):
     _version(tmp_path, "v0", "test-v1", with_model=False)
     registry.ship_version("v0", docs_models=tmp_path / "docs")
     assert staged["kwargs"]["model"] is None and staged["kwargs"]["model_version"] is None
+
+
+def test_eval_on_the_test_pool_is_preliminary_and_unshippable(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "MODELS", tmp_path / "models")
+    calls = {}
+
+    def fake_embed(argv):
+        (tmp_path / "models" / "v1" / "printings.meta.json").write_text(json.dumps({"backend": "coreml:CardEmbedder@v1"}))
+
+    def fake_eval(argv):
+        calls["eval"] = argv
+        run = tmp_path / "run"
+        run.mkdir()
+        (run / "metrics.json").write_text(json.dumps({"summary": SUMMARY, "groups": GROUPS}))
+        return run
+
+    (tmp_path / "models" / "v1" / "CardEmbedder.mlpackage").mkdir(parents=True)
+    monkeypatch.setattr(registry.embeddings, "main", fake_embed)
+    monkeypatch.setattr(registry.evaluate, "main", fake_eval)
+    monkeypatch.setattr(registry, "environment", lambda: {"macos": "15", "swift": "6", "torch": None})
+    stored = registry.eval_version("v1", scans="test")
+    assert calls["eval"][calls["eval"].index("--scans") + 1] == "test" and "--testset" not in calls["eval"]
+    assert stored["testset"] is None and stored["source"] == "test-pool"
+    card = (tmp_path / "models" / "v1" / "MODEL_CARD.md").read_text().lower()
+    assert "preliminary" in card and "not shippable" in card and "diagnostic" not in card
+    monkeypatch.setattr(registry.testsets, "load", lambda name: {"name": "test-v1"})
+    with pytest.raises(registry.RegistryError, match="unfrozen test pool"):
+        registry.ship_version("v1", docs_models=tmp_path / "docs")
