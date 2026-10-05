@@ -4,15 +4,87 @@ Put a physical One Piece TCG card on the desk and its character comes alive on t
 in the card's specific form. A Gear 4 Luffy card spawns Gear 4 Luffy, and a Gear 5 printing
 spawns Gear 5. Fully on-device, iPhone only.
 
+<!-- Demo GIF goes here once the scanner is solid on real cards. -->
+
+**Status:** work in progress. Recognition runs end-to-end on the phone. A fine-tuned embedding
+model is trained, and real-card evaluation is waiting on a large enough frozen test set (see
+[Results](#results)).
+
 Personal project. Characters and card art are Bandai / Shueisha IP. Assets are gitignored and
 never distributed.
+
+## The hard part: telling printings apart
+
+The catalog has about 4.2k printings. Many share a card code and differ only in art: base,
+parallel (alt art), manga, and reprints. The app has to name the exact printing from a camera
+frame in real time, offline, on a phone.
+
+```
+camera frame ─► detect + rectify ─► OCR the card code ─► printings with that code ─► embedding picks one
+                (Vision rectangles)  (bottom-right crop)   (1 → done, no ML needed)    (nearest neighbor)
+                                          │ no code read
+                                          └──────────────► nearest neighbor over the whole catalog
+```
+
+- **Code first, embeddings second.** OCR narrows 4.2k printings to a handful, so the embedding
+  only has to separate siblings. A guard checks that the art doesn't contradict the code: if a
+  printing outside the group matches much better, the read is treated as an OCR mistake.
+- **One pipeline, two places.** Recognition lives in a Swift package used by the app and by a Mac
+  CLI. The Python lab calls that CLI instead of re-implementing anything, so every offline number
+  is what the phone would produce.
+- **Retrieval, not classification.** The index holds one embedding per printing. A new set means
+  re-embedding its art, not retraining.
+
+## ML
+
+The Python lab (`ml/`) covers data, evaluation, training and shipping:
+
+- **Baseline:** Apple Vision's feature print (`VNGenerateImageFeaturePrintRequest`), with no training.
+- **Fine-tuned embedder:** MobileNetV3-Large (ImageNet) → 256-d embedding, trained with a
+  CosFace loss in PyTorch on Apple Silicon (MPS), then exported to Core ML.
+  - **Training data:** catalog art under on-the-fly augmentation (perspective error, glare,
+    lighting, blur, JPEG, blurring the API's SAMPLE watermark), plus real phone scans oversampled.
+  - **Group-aware batches:** printings that share a code go in the same batch, so the loss
+    separates exactly the siblings the app confuses.
+- **Data loop:** every scan on the phone is logged with the user's ✓ or correction as its label.
+  Scans are imported on the Mac and split by printing, not by image: about 30% of printings are
+  test-only forever, so no photo of a test card ever reaches training.
+- **Evaluation discipline:**
+  - Models are compared on a frozen, versioned real-scan test set, with 95% Wilson intervals.
+  - A version can only ship after it's been evaluated on the current frozen set. Shipping writes
+    a model card.
+  - Synthetic scores are reported but marked as optimistic: synthetic photos are made from the
+    same art as the references.
+
+Details: [`ml/README.md`](ml/README.md), [`docs/cv-pipeline.md`](docs/cv-pipeline.md).
+
+## Results
+
+Real-card numbers will go here once the first frozen test set (≥200 labeled scans across ≥30
+printings) exists. That set will compare the Vision feature print against the fine-tuned model.
+
+Before that, on synthetic photos and catalog images (optimistic for the reason above):
+
+| Setup | Index | Test images | Top-1 printing | Top-3 | Within-group |
+| --- | --- | --- | --- | --- | --- |
+| Vision feature print | 14 roster printings | 196 | 77.0% | 84.7% | — |
+| Code-first + art guard, feature print | ~4.2k printings | 346 | 76.3% | 87.3% | 88.6% |
+
+Full history: [`ml/results/results.csv`](ml/results/results.csv).
+
+## Tech
+
+- **App:** Swift 6, SwiftUI, ARKit, RealityKit, Vision, Core ML. iOS 18+.
+- **Shared logic:** OnePieceKit Swift package (recognition math, catalog, battle rules), unit-tested on the Mac.
+- **ML lab:** Python, PyTorch/torchvision, coremltools, NumPy, Pillow, uv, pytest.
+- **Workflow:** a MacBook builds the app, and a Mac mini holds the datasets and trains (`make train`, `make eval`, `make ship`).
 
 ## Layout
 
 ```
 apps/ios/            SwiftUI + ARKit + RealityKit + Vision app, plus OnePieceKit (pure Swift package)
 data/cards/          cards.json, printings.json, variants.json (bundled into the app at build time)
-ml/                  offline Python lab: data fetch, embeddings, evaluation, Core ML export
+ml/                  offline Python lab: data fetch, embeddings, evaluation, training, Core ML export
 docs/                architecture.md, cv-pipeline.md, asset-pipeline.md
 ```
 
@@ -44,8 +116,5 @@ pipeline exists.
 3. Add a model as `Resources/Characters/<variant>.usdz` plus clips (see
    `docs/asset-pipeline.md`), and the placeholder is replaced by the rigged character.
 
-## Status
-
-M0–M6 are implemented. Card data comes from the OPTCG API. The roster has two cards so far, and a
-Gear 4 Luffy card is still to pick. The ML lab (`ml/README.md`) evaluates recognition through the
-same Swift pipeline the phone runs. See `docs/architecture.md` and `data/cards/README.md`.
+Card data comes from the OPTCG API. The roster has two cards so far. See `docs/architecture.md`
+and `data/cards/README.md`.
