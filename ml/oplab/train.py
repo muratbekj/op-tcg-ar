@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None) -> None:
     step = 0
     accuracy = 0.0
     for epoch in range(args.epochs):
-        running = 0.0
+        running, batches = 0.0, 0
         for images, labels in loader:
             loss = head(model(images.to(dev)), labels.to(dev))
             optimizer.zero_grad()
@@ -180,11 +180,12 @@ def main(argv: list[str] | None = None) -> None:
             optimizer.step()
             scheduler.step()
             running += loss.item()
+            batches += 1
             step += 1
             if step >= total_steps:
                 break
         accuracy = validate(model, [data.image(art_paths[c]) for c in classes], dev)
-        print(f"epoch {epoch + 1}: loss {running / max(1, len(loader)):.3f}, synthetic val top-1 {accuracy:.3f}")
+        print(f"epoch {epoch + 1}: loss {running / max(1, batches):.3f}, synthetic val top-1 {accuracy:.3f}")
         torch.save({"state_dict": model.state_dict(), "dim": args.dim, "classes": classes,
                     "input_size": synth.TRAIN_SIZE, "name": args.name}, out_dir / "checkpoint.pt")
         if step >= total_steps:
