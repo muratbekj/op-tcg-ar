@@ -46,3 +46,6 @@ ml/shipped.staging/
 ml/shipped.old/
 ml/remote.env
 ml/.pull-staging/
+
+# Raw phone scans copied over by hand (real photos of physical cards)
+ml/Op-Scans/
