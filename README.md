@@ -4,12 +4,19 @@ Put a physical One Piece TCG card on the desk and its character comes alive on t
 in the card's specific form. A Gear 4 Luffy card spawns Gear 4 Luffy, and a Gear 5 printing
 spawns Gear 5. Fully on-device, iPhone only.
 
-<!-- Demo GIF goes here once the scanner is solid on real cards. -->
+<p align="center">
+  <img src="docs/images/demo.gif" width="300" alt="The scanner identifying a base and a parallel Sanji leader card with the same card number">
+</p>
 
-**Status:** work in progress. Recognition runs end-to-end on the phone. A fine-tuned embedding
-model is trained. On a preliminary set of real phone scans it beats the untrained baseline (78% vs
-63% top-1), and the headline comparison is waiting on a large enough frozen test set (see
-[Results](#results)).
+*Same card number, different art: the on-device scanner tells the base and parallel Sanji
+(PRB01-001) apart. These are Japanese printings, matched against English catalog art. Recognition
+debug is on: the top candidates and their similarity scores are shown at the top. Baseline model
+(Vision feature print).*
+
+**Status:** work in progress. Recognition runs end-to-end on the phone; summoning the character
+onto the card is in progress. A fine-tuned embedding model is trained. On a preliminary set of
+real phone scans it beats the untrained baseline (78% vs 63% top-1), and the headline comparison
+is waiting on a large enough frozen test set (see [Results](#results)).
 
 Unofficial personal fan project, not affiliated with or endorsed by Bandai, Shueisha, or Toei
 Animation. Characters and card art are their IP. Assets are gitignored and never distributed.
