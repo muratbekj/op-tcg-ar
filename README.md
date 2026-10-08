@@ -10,8 +10,8 @@ spawns Gear 5. Fully on-device, iPhone only.
 model is trained, and real-card evaluation is waiting on a large enough frozen test set (see
 [Results](#results)).
 
-Personal project. Characters and card art are Bandai / Shueisha IP. Assets are gitignored and
-never distributed.
+Unofficial personal fan project, not affiliated with or endorsed by Bandai, Shueisha, or Toei
+Animation. Characters and card art are their IP. Assets are gitignored and never distributed.
 
 ## The hard part: telling printings apart
 
@@ -69,6 +69,13 @@ Before that, on synthetic photos and catalog images (optimistic for the reason a
 | --- | --- | --- | --- | --- | --- |
 | Vision feature print | 14 roster printings | 196 | 77.0% | 84.7% | — |
 | Code-first + art guard, feature print | ~4.2k printings | 346 | 76.3% | 87.3% | 88.6% |
+
+The fine-tuned embedder (v1: 4,212 printings + 156 real scans, 3 epochs on a Mac mini M4) reached
+**96.3%** top-1 at the end of training. That is embedding-only nearest neighbor on augmented catalog
+art (2 views per printing), not the full pipeline above, so the two numbers aren't comparable. The
+real-scan comparison is the one that counts.
+
+![v1 training: top-1 accuracy and loss per epoch](docs/images/v1-training.png)
 
 Full history: [`ml/results/results.csv`](ml/results/results.csv).
 
