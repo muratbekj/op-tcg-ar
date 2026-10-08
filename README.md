@@ -7,7 +7,8 @@ spawns Gear 5. Fully on-device, iPhone only.
 <!-- Demo GIF goes here once the scanner is solid on real cards. -->
 
 **Status:** work in progress. Recognition runs end-to-end on the phone. A fine-tuned embedding
-model is trained, and real-card evaluation is waiting on a large enough frozen test set (see
+model is trained. On a preliminary set of real phone scans it beats the untrained baseline (78% vs
+63% top-1), and the headline comparison is waiting on a large enough frozen test set (see
 [Results](#results)).
 
 Unofficial personal fan project, not affiliated with or endorsed by Bandai, Shueisha, or Toei
@@ -60,10 +61,29 @@ Details: [`ml/README.md`](ml/README.md), [`docs/cv-pipeline.md`](docs/cv-pipelin
 
 ## Results
 
-Real-card numbers will go here once the first frozen test set (≥200 labeled scans across ≥30
-printings) exists. That set will compare the Vision feature print against the fine-tuned model.
+### Real phone scans (preliminary)
 
-Before that, on synthetic photos and catalog images (optimistic for the reason above):
+46 labeled iPhone scans of 8 printings that were never used for training, scored through the full
+pipeline against all 4,212 printings (`make eval SCANS=test`):
+
+| Model | Top-1 printing (95% CI) | Top-3 | Top-1 card number |
+| --- | --- | --- | --- |
+| v0: Vision feature print, no training | 63.0% (48.6–75.5%) | 78.3% | 67.4% |
+| **v1: fine-tuned MobileNetV3 + CosFace** | **78.3% (64.4–87.7%)** | **87.0%** | **84.8%** |
+
+On the same scans, v1 fixed 8 that v0 got wrong and broke 1. Read this with care:
+- **The gain is concentrated:** 7 of the 8 fixes are scans of one card (OP01-120). Scans of the
+  same card aren't independent, so this is a promising signal, not a proven win.
+- **One card is still hard for both models** (OP11-067: 1 of 7).
+- **OCR read a code on only 20% of these scans,** so most predictions came from the embedding alone.
+  Better OCR on real cards is the next lever.
+
+This pool isn't frozen and grows as I label scans. The headline comparison will use the first
+frozen test set (≥200 scans across ≥30 printings), which is also what `make ship` requires.
+
+### Synthetic photos and catalog images
+
+Optimistic for the reason above:
 
 | Setup | Index | Test images | Top-1 printing | Top-3 | Within-group |
 | --- | --- | --- | --- | --- | --- |

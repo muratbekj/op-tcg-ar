@@ -1,7 +1,9 @@
-timestamp,name,backend,index,index_printings,sources,ocr,n,skipped,detection,top1,top3,top1_given_detected,card_top1,variant_top1,ocr_used,median_ms,negatives,suggested_threshold,ocr_accuracy,within_group
-20260925-132157,featureprint-baseline,vision-featureprint-r2,printings.f32,14,synth,True,196,0,0.8571,0.7704,0.8469,0.8988,0.8571,1.0,0.1429,19.4,150,0.8,,
-20260929-232812,code-first-featureprint,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.7399,0.8439,0.8312,0.8266,0.9226,0.3831,33.0,0,,0.3506,0.8953
-20260929-232939,ocr-hardened,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.7399,0.8468,0.8312,0.8324,0.9167,0.5325,50.4,0,,0.5032,0.8862
-20260930-100147,art-guard-0.05,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.763,0.8728,0.8571,0.8584,0.9524,0.5032,56.3,0,,0.5032,0.8862
-20260930-100211,art-guard-0.08,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.763,0.8728,0.8571,0.8584,0.9524,0.5032,52.6,0,,0.5032,0.8862
-20260930-100234,art-guard-0.12,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.7601,0.8699,0.8539,0.8555,0.9464,0.5065,51.7,0,,0.5032,0.8862
+timestamp,name,backend,index,index_printings,sources,ocr,n,skipped,detection,top1,top3,top1_given_detected,card_top1,variant_top1,ocr_used,median_ms,negatives,suggested_threshold,ocr_accuracy,within_group,testset,top1_low,top1_high,ocr_accuracy_low,ocr_accuracy_high,within_group_low,within_group_high
+20260925-132157,featureprint-baseline,vision-featureprint-r2,printings.f32,14,synth,True,196,0,0.8571,0.7704,0.8469,0.8988,0.8571,1.0,0.1429,19.4,150,0.8,,,,,,,,,
+20260929-232812,code-first-featureprint,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.7399,0.8439,0.8312,0.8266,0.9226,0.3831,33.0,0,,0.3506,0.8953,,,,,,,
+20260929-232939,ocr-hardened,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.7399,0.8468,0.8312,0.8324,0.9167,0.5325,50.4,0,,0.5032,0.8862,,,,,,,
+20260930-100147,art-guard-0.05,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.763,0.8728,0.8571,0.8584,0.9524,0.5032,56.3,0,,0.5032,0.8862,,,,,,,
+20260930-100211,art-guard-0.08,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.763,0.8728,0.8571,0.8584,0.9524,0.5032,52.6,0,,0.5032,0.8862,,,,,,,
+20260930-100234,art-guard-0.12,vision-featureprint-r2,printings.f32,4212,catalog+synth,True,346,0,0.8902,0.7601,0.8699,0.8539,0.8555,0.9464,0.5065,51.7,0,,0.5032,0.8862,,,,,,,
+20261008-134108,v1,coreml:CardEmbedder@v1,printings.f32,4212,scan,True,46,0,1.0,0.7826,0.8696,0.7826,0.8478,,0.1957,61.2,0,,0.1957,1.0,test-pool,0.6443,0.8774,0.1065,0.3317,0.2065,1.0
+20261008-134158,v0,vision-featureprint-r2,printings.f32,4212,scan,True,46,0,1.0,0.6304,0.7826,0.6304,0.6739,,0.1957,65.7,0,,0.1957,1.0,test-pool,0.486,0.7548,0.1065,0.3317,0.2065,1.0
