@@ -1,158 +1,101 @@
 # One Piece Card Battle AR
 
-Put a physical One Piece TCG card on the desk and its character comes alive on top of it,
-in the card's specific form. A Gear 4 Luffy card spawns Gear 4 Luffy, and a Gear 5 printing
-spawns Gear 5. Fully on-device, iPhone only.
+An iPhone app that identifies the exact One Piece TCG card in front of the camera, out of 4,212
+printings, fully on-device. The goal: the card's character comes alive on top of it in AR.
 
-<p align="center">
-  <img src="docs/images/demo-comparison.gif" width="540" alt="Side by side: Apple's Vision feature print (left) and the fine-tuned v1 model (right) identifying base and parallel Sanji, with the closest wrong card's score captioned below each">
-</p>
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/images/demo.gif" width="250" alt="Apple's Vision feature print identifying base and parallel Sanji"></td>
+    <td align="center"><img src="docs/images/demo-v1.gif" width="250" alt="The fine-tuned v1 model identifying base and parallel Sanji, with Settings showing coreml:CardEmbedder@v1"></td>
+  </tr>
+  <tr>
+    <td align="center">Baseline: Apple Vision feature print</td>
+    <td align="center">My fine-tuned model (v1), on-device</td>
+  </tr>
+</table>
 
-*Same card number (PRB01-001), different art: the scanner tells the base and parallel Sanji apart.
-These are Japanese printings, matched against English catalog art, and OCR didn't read the code,
-so both picks come from the art alone. Both models choose correctly. The caption shows what
-differs: the closest wrong card scores 0.797 / 0.750 with the baseline but 0.301 / 0.361 with v1, so
-v1 separates the right printing from the runner-up by ~0.5 similarity instead of ~0.07–0.09. (Each
-model scores on its own scale, so compare the gaps, not the top scores.)
-Caveat: these two cards were in v1's training scans, so the clip shows the margin, not how well
-it generalizes. For that, see the [real-scan results](#results).*
+| | Apple Vision (baseline) | My model (v1) |
+| --- | --- | --- |
+| Closest **wrong** card's score, base / parallel | 0.797 / 0.750 | **0.301 / 0.361** |
 
-**Status:** work in progress. Recognition runs end-to-end on the phone; summoning the character
-onto the card is in progress. My fine-tuned embedding model runs on the phone in a dev build. On a
-preliminary set of real phone scans it beats the untrained baseline (78% vs 63% top-1). Shipping
-it waits on a large enough frozen test set (see [Results](#results)).
+*Same card number (PRB01-001), different art. Both models pick correctly, but mine leaves a far wider
+gap to the runner-up. (These two cards were in v1's training scans.)*
 
-Unofficial personal fan project, not affiliated with or endorsed by Bandai, Shueisha, or Toei
-Animation. Characters and card art are their IP. Assets are gitignored and never distributed.
+## Why I built this
 
-## The hard part: telling printings apart
-
-The catalog has about 4.2k printings. Many share a card code and differ only in art: base,
-parallel (alt art), manga, and reprints. The app has to name the exact printing from a camera
-frame in real time, offline, on a phone.
-
-```
-camera frame ─► detect + rectify ─► OCR the card code ─► printings with that code ─► embedding picks one
-                (Vision rectangles)  (bottom-right crop)   (1 → done, no ML needed)    (nearest neighbor)
-                                          │ no code read
-                                          └──────────────► nearest neighbor over the whole catalog
-```
-
-- **Code first, embeddings second.** OCR narrows 4.2k printings to a handful, so the embedding
-  only has to separate siblings. A guard checks that the art doesn't contradict the code: if a
-  printing outside the group matches much better, the read is treated as an OCR mistake.
-- **One pipeline, two places.** Recognition lives in a Swift package used by the app and by a Mac
-  CLI. The Python lab calls that CLI instead of re-implementing anything, so every offline number
-  is what the phone would produce.
-- **Retrieval, not classification.** The index holds one embedding per printing. A new set means
-  re-embedding its art, not retraining.
-
-## ML
-
-The Python lab (`ml/`) covers data, evaluation, training and shipping:
-
-- **Baseline:** Apple Vision's feature print (`VNGenerateImageFeaturePrintRequest`), with no training.
-- **Fine-tuned embedder:** MobileNetV3-Large (ImageNet) → 256-d embedding, trained with a
-  CosFace loss in PyTorch on Apple Silicon (MPS), then exported to Core ML.
-  - **Training data:** catalog art under on-the-fly augmentation (perspective error, glare,
-    lighting, blur, JPEG, blurring the API's SAMPLE watermark), plus real phone scans oversampled.
-  - **Group-aware batches:** printings that share a code go in the same batch, so the loss
-    separates exactly the siblings the app confuses.
-- **Data loop:** every scan on the phone is logged with the user's ✓ or correction as its label.
-  Scans are imported on the Mac and split by printing, not by image: about 30% of printings are
-  test-only forever, so no photo of a test card ever reaches training.
-- **Evaluation discipline:**
-  - Models are compared on a frozen, versioned real-scan test set, with 95% Wilson intervals.
-  - A version can only ship after it's been evaluated on the current frozen set. Shipping writes
-    a model card.
-  - Synthetic scores are reported but marked as optimistic: synthetic photos are made from the
-    same art as the references.
-
-Details: [`ml/README.md`](ml/README.md), [`docs/cv-pipeline.md`](docs/cv-pipeline.md).
+I love One Piece and wanted to learn more about ML and computer vision, so I picked a problem I
+actually care about: telling apart cards that share a number and differ only in their art.
 
 ## Results
 
-### Real phone scans (preliminary)
+46 real iPhone scans of cards the model never trained on, matched against all 4,212 printings:
 
-46 labeled iPhone scans of 8 printings that were never used for training, scored through the full
-pipeline against all 4,212 printings (`make eval SCANS=test`):
+| Model | Top-1 printing (95% CI) | Top-3 |
+| --- | --- | --- |
+| Apple Vision feature print, no training | 63.0% (48.6–75.5%) | 78.3% |
+| **Fine-tuned MobileNetV3 + CosFace (v1)** | **78.3% (64.4–87.7%)** | **87.0%** |
 
-| Model | Top-1 printing (95% CI) | Top-3 | Top-1 card number |
-| --- | --- | --- | --- |
-| v0: Vision feature print, no training | 63.0% (48.6–75.5%) | 78.3% | 67.4% |
-| **v1: fine-tuned MobileNetV3 + CosFace** | **78.3% (64.4–87.7%)** | **87.0%** | **84.8%** |
+Preliminary: a small set, and the gain is concentrated in one card. Full results and caveats:
+[`docs/results.md`](docs/results.md).
 
-On the same scans, v1 fixed 8 that v0 got wrong and broke 1. Read this with care:
-- **The gain is concentrated:** 7 of the 8 fixes are scans of one card (OP01-120). Scans of the
-  same card aren't independent, so this is a promising signal, not a proven win.
-- **One card is still hard for both models** (OP11-067: 1 of 7).
-- **OCR read a code on only 20% of these scans,** so most predictions came from the embedding alone.
-  Better OCR on real cards is the next lever.
+## How it works
 
-This pool isn't frozen and grows as I label scans. The headline comparison will use the first
-frozen test set (≥200 scans across ≥30 printings), which is also what `make ship` requires.
+```
+camera frame ─► detect + rectify ─► OCR the card code ─► printings with that code ─► embedding picks one
+                                          │ no code read
+                                          └──────────────► nearest neighbor over all 4,212 printings
+```
 
-### Synthetic photos and catalog images
+**Recognition (Swift, on-device)**
+- **Detect:** Vision rectangle detection, then a perspective warp to a flat card crop.
+- **Read the code:** Vision text recognition on the code corner (cropped, upscaled 3×). A code
+  narrows 4,212 printings to a handful; if it maps to one printing, no ML is needed.
+- **Match the art:** cosine nearest neighbor over a prebuilt index, one embedding per printing.
+  New sets only need their art re-embedded, not retraining.
+- **Art-check guard:** if a printing outside the code's group matches much better (margin 0.08),
+  the code read is treated as an OCR mistake.
 
-Optimistic for the reason above:
+**Model (v1)**
 
-| Setup | Index | Test images | Top-1 printing | Top-3 | Within-group |
-| --- | --- | --- | --- | --- | --- |
-| Vision feature print | 14 roster printings | 196 | 77.0% | 84.7% | — |
-| Code-first + art guard, feature print | ~4.2k printings | 346 | 76.3% | 87.3% | 88.6% |
+| | |
+| --- | --- |
+| Backbone | MobileNetV3-Large (ImageNet) → linear → 256-d, L2-normalized |
+| Loss | CosFace (scale 30, margin 0.25) over 4,212 classes |
+| Data | 8 augmented views per printing per epoch (perspective, glare, blur, lighting) + 156 real scans ×4 |
+| Batching | Printings that share a card code go in the same batch, so the loss separates siblings |
+| Training | AdamW + one-cycle LR, 3 epochs, batch 64, PyTorch on a Mac mini M4 (MPS) |
+| Deploy | Core ML, 224×320 RGB input; index is 4,212 × 256 float32 (4.3 MB) |
 
-The fine-tuned embedder (v1: 4,212 printings + 156 real scans, 3 epochs on a Mac mini M4) reached
-**96.3%** top-1 at the end of training. That is embedding-only nearest neighbor on augmented catalog
-art (2 views per printing), not the full pipeline above, so the two numbers aren't comparable. The
-real-scan comparison is the one that counts.
+**Evaluation**
+- **No leakage:** labeled scans are split by printing; ~30% of printings are test-only forever.
+- **Frozen test sets:** versioned, ≥200 real scans across ≥30 printings, reported with 95% Wilson intervals.
+- **Ship gate:** `make ship` refuses any model not evaluated on the current frozen set, and writes a model card.
+- **One pipeline:** offline evals call the same Swift recognition code as the app (via a Mac CLI),
+  so every number is what the phone would produce.
 
-![v1 training: top-1 accuracy and loss per epoch](docs/images/v1-training.png)
-
-Full history: [`ml/results/results.csv`](ml/results/results.csv).
+Details: [`docs/cv-pipeline.md`](docs/cv-pipeline.md), [`ml/README.md`](ml/README.md).
 
 ## Tech
 
-- **App:** Swift 6, SwiftUI, ARKit, RealityKit, Vision, Core ML. iOS 18+.
-- **Shared logic:** OnePieceKit Swift package (recognition math, catalog, battle rules), unit-tested on the Mac.
-- **ML lab:** Python, PyTorch/torchvision, coremltools, NumPy, Pillow, uv, pytest.
-- **Workflow:** a MacBook builds the app, and a Mac mini holds the datasets and trains (`make train`, `make eval`, `make ship`).
+- **App:** Swift 6, SwiftUI, ARKit, RealityKit, Vision, Core ML (iOS 18+)
+- **ML:** Python, PyTorch, torchvision, coremltools, NumPy, pytest, uv
 
-## Layout
+## Status
 
-```
-apps/ios/            SwiftUI + ARKit + RealityKit + Vision app, plus OnePieceKit (pure Swift package)
-data/cards/          cards.json, printings.json, variants.json (bundled into the app at build time)
-ml/                  offline Python lab: data fetch, embeddings, evaluation, training, Core ML export
-docs/                architecture.md, cv-pipeline.md, asset-pipeline.md
-```
+Recognition works end-to-end on the phone. AR summoning is in progress. My model runs in a dev build
+and ships once the frozen test set (≥200 scans) exists.
 
-## Getting started
-
-Requirements: Xcode 27, and an iPhone XS or newer running iOS 18+. The simulator has no ARKit,
-but the card browser and settings still run there.
+## Run it
 
 ```sh
-make test     # OnePieceKit + BattleKit unit tests, no device needed
-make build    # compile the app for a generic iPhone, unsigned
-make open     # open in Xcode
-make ml-test  # ML lab unit tests
-make eval NAME=v0   # evaluate a model version on the frozen test set (see ml/README.md)
+make test     # Swift unit tests
+make ml-test  # ML lab tests
+make open     # open in Xcode, then pick your team under Signing & Capabilities
 ```
 
-To run on your phone: open the project, go to Signing & Capabilities for the OnePieceAR target,
-choose your team (and change the bundle ID if it's taken), then run on the device.
+Works without 3D assets (placeholder figures): see [`docs/asset-pipeline.md`](docs/asset-pipeline.md).
 
-### First run without any assets
+---
 
-The app works with no 3D models at all. Each variant spawns a colored placeholder figure with
-the same behavior (idle, attack, hit, victory, wander), so you can test AR before the asset
-pipeline exists.
-
-1. **Pick card** > Summon. With no card art bundled, tap a surface to place the character.
-2. Add card art as `apps/ios/OnePieceAR/Resources/Cards/<printingId>.png`. The character then
-   anchors to the physical card, and **Scan card** starts recognizing it.
-3. Add a model as `Resources/Characters/<variant>.usdz` plus clips (see
-   `docs/asset-pipeline.md`), and the placeholder is replaced by the rigged character.
-
-Card data comes from the OPTCG API. The roster has two cards so far. See `docs/architecture.md`
-and `data/cards/README.md`.
+Unofficial fan project, not affiliated with or endorsed by Bandai, Shueisha, or Toei Animation.
+Characters and card art are their IP and are never distributed.
