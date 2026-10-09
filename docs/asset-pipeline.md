@@ -48,3 +48,14 @@ clips to the shared library once you've confirmed they bind.
 Built-in procedural effects: `haki`, `slash`, `fire`, `lightning`, `smoke`, `impact`
 (`VFXLibrary.swift`). A variant's attack lists the effects it composes. Adding a new kind means
 adding a case to `VFXKind` in OnePieceKit and to `VFXLibrary`.
+
+## First run without any assets
+
+The app works with no 3D models at all. Each variant spawns a colored placeholder figure with
+the same behavior (idle, attack, hit, victory, wander), so you can test AR before the asset
+pipeline exists.
+
+1. **Pick card** > Summon. With no card art bundled, tap a surface to place the character.
+2. Add card art as `apps/ios/OnePieceAR/Resources/Cards/<printingId>.png`. The character then
+   anchors to the physical card, and **Scan card** starts recognizing it.
+3. Add a model as `Resources/Characters/<variant>.usdz` plus clips (see above), and the placeholder is replaced by the rigged character.
