@@ -4,21 +4,16 @@ Put a physical One Piece TCG card on the desk and its character comes alive on t
 in the card's specific form. A Gear 4 Luffy card spawns Gear 4 Luffy, and a Gear 5 printing
 spawns Gear 5. Fully on-device, iPhone only.
 
-<table align="center">
-  <tr>
-    <td align="center"><img src="docs/images/demo.gif" width="250" alt="Apple's Vision feature print identifying base and parallel Sanji"></td>
-    <td align="center"><img src="docs/images/demo-v1.gif" width="250" alt="The fine-tuned v1 model identifying base and parallel Sanji, with Settings showing coreml:CardEmbedder@v1"></td>
-  </tr>
-  <tr>
-    <td align="center">Baseline: Apple Vision feature print</td>
-    <td align="center">My fine-tuned model (v1), on-device</td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/images/demo-comparison.gif" width="540" alt="Side by side: Apple's Vision feature print (left) and the fine-tuned v1 model (right) identifying base and parallel Sanji, with the closest wrong card's score captioned below each">
+</p>
 
 *Same card number (PRB01-001), different art: the scanner tells the base and parallel Sanji apart.
 These are Japanese printings, matched against English catalog art, and OCR didn't read the code,
-so both picks come from the art alone. Both models choose correctly, but v1 separates the right
-printing from the next candidate by ~0.5 similarity, where the baseline's margin is ~0.07–0.09.
+so both picks come from the art alone. Both models choose correctly. The caption shows what
+differs: the closest wrong card scores 0.797 / 0.750 with the baseline but 0.301 / 0.361 with v1, so
+v1 separates the right printing from the runner-up by ~0.5 similarity instead of ~0.07–0.09. (Each
+model scores on its own scale, so compare the gaps, not the top scores.)
 Caveat: these two cards were in v1's training scans, so the clip shows the margin, not how well
 it generalizes. For that, see the [real-scan results](#results).*
 
