@@ -21,12 +21,6 @@ printings, fully on-device. The goal: the card's character comes alive on top of
 *Same card number (PRB01-001), different art. Both models pick correctly, but mine leaves a far wider
 gap to the runner-up. (These two cards were in v1's training scans.)*
 
-## Why I built this
-
-I'm a software engineering student and a One Piece fan, and I wanted to learn ML by building
-something real. This is the first model I've ever fine-tuned, trained on a Mac mini with scans
-of my own cards. Telling a base card from its parallel turned out to be the hardest (and most fun) part.
-
 ## Results
 
 46 real iPhone scans of cards the model never trained on, matched against all 4,212 printings:
