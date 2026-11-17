@@ -28,7 +28,7 @@ actually care about: telling apart cards that share a number and differ only in 
 
 ## Results
 
-46 real iPhone scans of cards the model never trained on, matched against all 4,212 printings:
+46 real iPhone scans of real phone scans of cards whose catalog art was in training. The scans were held out; the cards were not:
 
 | Model | Top-1 printing (95% CI) | Top-3 |
 | --- | --- | --- |
@@ -51,7 +51,7 @@ camera frame ─► detect + rectify ─► OCR the card code ─► printings w
 - **Read the code:** Vision text recognition on the code corner (cropped, upscaled 3×). A code
   narrows 4,212 printings to a handful; if it maps to one printing, no ML is needed.
 - **Match the art:** cosine nearest neighbor over a prebuilt index, one embedding per printing.
-  New sets only need their art re-embedded, not retraining.
+  Goal: new sets need only their art re-embedded, not retraining. Not yet measured, see #10.
 - **Art-check guard:** if a printing outside the code's group matches much better (margin 0.08),
   the code read is treated as an OCR mistake.
 
